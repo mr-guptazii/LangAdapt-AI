@@ -28,13 +28,15 @@ services:
     dockerfilePath: ./infrastructure/docker/Dockerfile.api
     dockerContext: .
     healthCheckPath: /health
-    # Overrides the Dockerfile's CMD (which is bare `uvicorn`, no migration
-    # step — docker-compose gets this via its own `command:` override instead,
-    # see docker-compose.yml). Also binds to Render's dynamically assigned
-    # $PORT rather than the hardcoded 8000 the Dockerfile/compose use — Render
-    # requires this for its web services. (`dockerCommand`, not `startCommand`
-    # — Render reserves startCommand for native/buildpack runtimes.)
-    dockerCommand: "sh -c \"alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT\""
+    # No dockerCommand override needed: the image's own CMD (apps/api/entrypoint.sh)
+    # runs migrations then starts uvicorn on $PORT if set, defaulting to 8000
+    # otherwise — Render sets PORT automatically for web services. (A prior
+    # version of this file tried to override the command inline with
+    # `sh -c "...&&..."` directly in dockerCommand; Render did not shell-parse
+    # that string the way a real shell would and it failed with "command not
+    # found" on the whole literal string. Baking the logic into the image's
+    # own entrypoint instead sidesteps that per-platform quoting ambiguity —
+    # see entrypoint.sh's comment.)
     envVars:
       - key: DATABASE_URL
         fromDatabase:

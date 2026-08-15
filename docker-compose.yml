@@ -46,8 +46,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # No command override — the image's own CMD (entrypoint.sh) runs
+    # migrations then starts uvicorn, defaulting to port 8000 since PORT
+    # isn't set here (Render is the only platform that sets it).
 
   worker:
     build:

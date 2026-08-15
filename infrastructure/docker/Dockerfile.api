@@ -15,4 +15,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Runs migrations then starts uvicorn, binding to $PORT if the platform sets
+# one (Render) or defaulting to 8000 (docker-compose, the self-hosted VM,
+# `docker run`) — see entrypoint.sh's comment for why this replaced a
+# per-platform inline "sh -c '...&&...'" override.
+CMD ["sh", "entrypoint.sh"]
