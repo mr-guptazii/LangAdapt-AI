@@ -1,0 +1,111 @@
+# Render Blueprint — provisions the API, background worker, Postgres
+# (pgvector-enabled), and Redis in one shot. Deploy via Render's dashboard:
+# "New" -> "Blueprint" -> select this repo. Fields marked `sync: false` are
+# prompted for at creation time and never stored in git.
+#
+# The frontend (apps/web) is NOT included here — it's deployed separately on
+# Vercel (native Next.js support, better fit than Render for that half). See
+# docs/DEPLOYMENT.md for the full two-platform walkthrough.
+
+databases:
+  - name: lingoadapt-db
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+
+services:
+  - name: lingoadapt-redis
+    type: keyvalue
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+  - name: lingoadapt-api
+    type: web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./infrastructure/docker/Dockerfile.api
+    dockerContext: .
+    healthCheckPath: /health
+    # Overrides the Dockerfile's CMD (which is bare `uvicorn`, no migration
+    # step — docker-compose gets this via its own `command:` override instead,
+    # see docker-compose.yml). Also binds to Render's dynamically assigned
+    # $PORT rather than the hardcoded 8000 the Dockerfile/compose use — Render
+    # requires this for its web services.
+    startCommand: "sh -c \"alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT\""
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lingoadapt-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: lingoadapt-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      # LLM provider: set these at creation time. LLM_PROVIDER=openai routes
+      # through OpenAICompatibleProvider — works with real OpenAI, NVIDIA NIM,
+      # or Gemini's OpenAI-compat endpoint depending on OPENAI_BASE_URL (see
+      # .env.example for exact values per backend). Leave OPENAI_API_KEY unset
+      # to run on the dependency-free mock provider instead (section 99).
+      - key: LLM_PROVIDER
+        value: mock
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_MODEL_FAST
+        sync: false
+      - key: OPENAI_MODEL_STRONG
+        sync: false
+      # CORS: update this to your real Vercel domain after the frontend is
+      # deployed (it isn't known yet on first deploy of this blueprint).
+      - key: CORS_ORIGINS
+        value: '["http://localhost:3000"]'
+        sync: false
+
+  - name: lingoadapt-worker
+    type: worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./infrastructure/docker/Dockerfile.worker
+    dockerContext: .
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lingoadapt-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: lingoadapt-redis
+          property: connectionString
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: lingoadapt-api
+          envVarKey: JWT_SECRET
+      - key: ENV
+        value: production
+      - key: LLM_PROVIDER
+        fromService:
+          type: web
+          name: lingoadapt-api
+          envVarKey: LLM_PROVIDER
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_MODEL_FAST
+        sync: false
+      - key: OPENAI_MODEL_STRONG
+        sync: false

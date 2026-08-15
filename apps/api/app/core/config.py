@@ -1,7 +1,22 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalize_asyncpg_url(url: str) -> str:
+    """Managed Postgres providers (Render, Railway, Heroku-style DATABASE_URL,
+    etc.) hand out a plain postgres://... or postgresql://... connection
+    string with no driver suffix — but SQLAlchemy's async engine requires
+    postgresql+asyncpg://. Normalizing here means a platform's auto-provisioned
+    DATABASE_URL can be wired in directly with no manual editing, instead of
+    deployment silently breaking on a driver mismatch."""
+    if url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
 
 
 class Settings(BaseSettings):
@@ -16,6 +31,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://lingoadapt:lingoadapt@localhost:5432/lingoadapt"
     DATABASE_URL_SYNC: str = "postgresql+psycopg2://lingoadapt:lingoadapt@localhost:5432/lingoadapt"
+
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def _fix_database_url_driver(cls, v: str) -> str:
+        return _normalize_asyncpg_url(v)
     # Optional override so integration tests never touch the dev/demo database
     # locally; unset in CI, where DATABASE_URL already points at a disposable
     # per-run Postgres service container (see .github/workflows/ci.yml).
