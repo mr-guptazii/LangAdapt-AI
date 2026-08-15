@@ -1,0 +1,17 @@
+line-length = 175
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "B", "PIE", "S"]
+ignore = [
+    "B008",  # FastAPI's Depends()-in-default-argument is the documented idiom, not a bug
+]
+
+[lint.per-file-ignores]
+"alembic/*" = ["E501"]
+"app/ai/providers/mock_provider.py" = ["E501", "S311"]  # long mock-content string literals; random.* used for non-cryptographic demo content only
+"app/voice/providers/mock_providers.py" = ["S311"]  # random.* used for deterministic-seeded demo timing/scores only, never security-relevant
+"app/core/config.py" = ["S105"]  # JWT_SECRET default is an intentionally-named insecure placeholder, not a real credential
+"app/schemas/api.py" = ["S105"]  # "bearer" is an OAuth2 token *type* string, not a password
+"tests/**" = ["S101", "S105", "S106", "S107"]  # asserts and literal test credentials are expected in tests
+"scripts/seed.py" = ["S106", "S311"]  # seeded demo password is an intentional literal demo credential; random.* used for demo data variety only
