@@ -13,4 +13,13 @@ COPY apps/api/ .
 
 ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
 
-CMD ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
+# --pool=solo: Celery's default "prefork" pool forks one OS process per
+# detected CPU, and each fork duplicates the full memory footprint of every
+# heavy import (SQLAlchemy, LangGraph, langchain-core, numpy, anthropic,
+# openai...) — on a memory-constrained instance (e.g. Render's 512MB Starter
+# plan) that's enough to get OOM-killed under normal operation, which is
+# exactly what happened in production. solo runs everything in a single
+# process with no forking; the four background jobs here are periodic and
+# low-volume (see app/tasks/celery_app.py's beat schedule — hours apart, not
+# a task firehose), so there's no real concurrency need to trade away.
+CMD ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info", "--pool=solo"]
