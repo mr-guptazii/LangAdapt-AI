@@ -31,9 +31,22 @@ def get_redis_client() -> aioredis.Redis:
 def _client_key(request: Request, user_id: str | None) -> str:
     if user_id:
         return f"user:{user_id}"
-    # X-Forwarded-For is only trusted because this app is expected to sit
-    # behind a reverse proxy in production that sets it; request.client.host
-    # is the fallback for direct/local access.
+    # CF-Connecting-IP first: Render fronts every deployment with Cloudflare,
+    # and that header is Cloudflare's own authoritative "real visitor" IP —
+    # Cloudflare strips/overwrites any client-supplied version of it, so it
+    # can't be spoofed the way a bare X-Forwarded-For could be. This matters
+    # more than it looks: without it, every request arriving through Render's
+    # proxy layer risked resolving to request.client.host, which behind a
+    # proxy is the PROXY's own connecting IP — identical for every visitor —
+    # meaning one user's traffic could exhaust another user's rate-limit
+    # bucket. (Real symptom hit in production: heavy testing from one client
+    # got a completely different browser session rate-limited on /register.)
+    # X-Forwarded-For remains the fallback for any non-Cloudflare deployment
+    # (the self-hosted VM path, Caddy, etc.), and request.client.host last for
+    # direct/local access with no proxy at all.
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return f"ip:{cf_ip.strip()}"
     forwarded = request.headers.get("x-forwarded-for")
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
     return f"ip:{ip}"
