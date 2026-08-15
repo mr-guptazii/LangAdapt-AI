@@ -1,0 +1,24 @@
+# Single-domain reverse proxy: /api/* and /health* go to the backend, every
+# other path goes to the frontend. This only works because the frontend's
+# api.ts prefixes fetches with NEXT_PUBLIC_API_URL, which is set to an EMPTY
+# string in docker-compose.prod.yml — that turns every API call into a
+# same-origin relative request (e.g. `/api/v1/auth/login`), so there's no
+# cross-origin request at all and CORS_ORIGINS doesn't need to list this
+# domain (unlike the Vercel+Render split, which is two real origins).
+#
+# {$DOMAIN} is substituted from the DOMAIN env var (see .env on the VM). Point
+# it at a real domain/subdomain for automatic Let's Encrypt HTTPS; leave it as
+# an IP address or unset to fall back to :80 (plain HTTP — fine to bring the
+# stack up before you've pointed DNS at it, but don't rely on it long-term:
+# JWTs travel in the Authorization header unencrypted over plain HTTP).
+{$DOMAIN::80} {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle /health* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

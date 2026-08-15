@@ -1,0 +1,129 @@
+# Self-hosted production stack (e.g. an Oracle Cloud "Always Free" VM — see
+# docs/DEPLOYMENT.md). A standalone file, not an override/extension of the
+# root docker-compose.yml, specifically so there's no ambiguity from Compose's
+# list-merge behavior about which ports end up exposed — Postgres and Redis
+# must NEVER be reachable from the public internet, only Caddy's 80/443.
+#
+# Run from the repo root: docker compose -f infrastructure/vm/docker-compose.prod.yml --env-file apps/api/.env up -d --build
+
+name: lingoadapt-prod
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lingoadapt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password in apps/api/.env}
+      POSTGRES_DB: lingoadapt
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lingoadapt"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No `ports:` — reachable only from other containers on this compose
+    # network (api/worker), never from the host's public interface.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set a real password in apps/api/.env}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No `ports:` — same reasoning as postgres.
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lingoadapt:${POSTGRES_PASSWORD}@postgres:5432/lingoadapt
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ENV: production
+      DEBUG: "false"
+      CORS_ORIGINS: "[]"  # same-origin via Caddy path-routing — see Caddyfile comment; no cross-origin calls to allow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # No `ports:` — only Caddy talks to this, over the internal network.
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lingoadapt:${POSTGRES_PASSWORD}@postgres:5432/lingoadapt
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - ../../apps/api/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://lingoadapt:${POSTGRES_PASSWORD}@postgres:5432/lingoadapt
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      ENV: production
+    command: ["celery", "-A", "app.tasks.celery_app", "beat", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      # Empty on purpose — see Caddyfile comment: this makes every frontend
+      # API call same-origin, routed by Caddy, instead of cross-origin.
+      NEXT_PUBLIC_API_URL: ""
+    depends_on:
+      - api
+    # No `ports:` — only Caddy talks to this.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
