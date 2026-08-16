@@ -27,14 +27,23 @@ export default function SettingsPage() {
   }
 
   async function exportData() {
-    await api.post("/api/v1/settings/export");
-    push("Data export requested — you'll receive it by email.", "success");
+    // A real, immediate download — not a promise of an email that no email
+    // integration in this app can actually send.
+    const data = await api.post("/api/v1/settings/export");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "lingoadapt-export.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    push("Your data has been downloaded.", "success");
   }
 
   async function deleteAccount() {
-    if (!confirm("This will deactivate your account. Continue?")) return;
+    if (!confirm("This permanently deletes your account and all your learning data — conversations, errors, vocabulary, and progress. This cannot be undone. Continue?")) return;
     await api.del("/api/v1/settings/account");
-    push("Account deactivated.", "info");
+    push("Account and all associated data permanently deleted.", "info");
   }
 
   if (!settings) return <AppShell><p className="text-cream/40">Loading settings…</p></AppShell>;

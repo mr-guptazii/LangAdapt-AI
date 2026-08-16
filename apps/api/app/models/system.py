@@ -23,10 +23,29 @@ class Notification(Base, UUIDPKMixin, TimestampMixin):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PasswordResetToken(Base, UUIDPKMixin, TimestampMixin):
+    """Real, secure password-reset infrastructure — see auth_service.py's
+    request_password_reset/reset_password. Only the SHA-256 hash of the token
+    is ever stored (same principle as password storage): reading this table
+    alone can never produce a token usable to reset someone's password."""
+    __tablename__ = "password_reset_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AuditLog(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "audit_logs"
 
-    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # ON DELETE SET NULL (not the default NO ACTION/RESTRICT): a real account
+    # deletion must not be blocked by its own audit trail — the log entry
+    # should outlive the account it's about, just with the actor reference
+    # cleared instead of the row being deleted or the delete being rejected.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     action: Mapped[str] = mapped_column(String(64))  # e.g. user.login, data.export, account.delete
     target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -47,6 +47,7 @@ export default function TutorPage() {
   const [thinking, setThinking] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(true);
+  const [ttsIsMock, setTtsIsMock] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recorder = useVoiceRecorder();
@@ -87,6 +88,7 @@ export default function TutorPage() {
       form.append("text", text);
       form.append("voice_speed", "1.0");
       const res = await api.postForm<SynthesizeResponse>("/api/v1/voice/synthesize", form);
+      setTtsIsMock(res.is_mock);
       if (res.audio_base64) {
         const audio = new Audio(`data:${res.mime_type};base64,${res.audio_base64}`);
         audioRef.current = audio;
@@ -149,9 +151,9 @@ export default function TutorPage() {
         <div className="flex items-center justify-between">
           <h1 className="font-display text-2xl text-gold-400">AI Tutor</h1>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-cream/50">
+            <label className="flex items-center gap-1.5 text-xs text-cream/50" title={ttsIsMock ? "No production voice provider is configured — using your device's built-in voice instead." : undefined}>
               <input type="checkbox" checked={voiceReplies} onChange={(e) => setVoiceReplies(e.target.checked)} className="accent-cyan-500" />
-              Voice replies
+              Voice replies{voiceReplies && ttsIsMock ? " (device voice)" : ""}
             </label>
             <div className="flex gap-1.5 overflow-x-auto">
               {MODES.map((m) => (

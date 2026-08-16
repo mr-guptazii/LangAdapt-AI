@@ -19,6 +19,7 @@ async def conversation_agent(state: TutorState) -> dict:
         personality=profile.get("ai_personality", "encouraging"),
         correction_style=prefs.get("correction_style", "balanced"),
         explanation_length=prefs.get("preferred_explanation_length", "medium"),
+        interests=profile.get("interests", []),
         recent_errors=state.get("recent_error_categories", []),
         relevant_memories=state.get("relevant_memories", []),
         objective=None,

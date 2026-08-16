@@ -23,10 +23,12 @@ class User(Base, UUIDPKMixin, TimestampMixin):
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Multi-tenancy extension points (unused at MVP scope, kept nullable for future org/teacher features)
+    # Multi-tenancy extension points (unused at MVP scope, kept nullable for future org/teacher features).
+    # ON DELETE SET NULL so that, once this is wired up, deleting a teacher's
+    # account can never be blocked by students still referencing them.
     organization_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     teacher_id: Mapped[uuid.UUID | None] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     profile: Mapped["Profile"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")

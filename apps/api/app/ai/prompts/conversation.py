@@ -38,6 +38,7 @@ def build_conversation_prompt(
     conversation_history: list[dict],
     user_message: str,
     explanation_length: str = "medium",
+    interests: list[str] | None = None,
 ) -> list[dict]:
     style = PERSONALITY_STYLE.get(personality, PERSONALITY_STYLE["encouraging"])
     correction_guidance = CORRECTION_STYLE_GUIDANCE.get(correction_style, CORRECTION_STYLE_GUIDANCE["balanced"])
@@ -58,6 +59,7 @@ Rules:
 - Never shame the learner. Never use more than one emoji.
 {f"- Current lesson objective (do not announce this explicitly, just steer toward it): {objective}" if objective else ""}
 {f"- Scenario role-play context: {scenario}" if scenario else ""}
+{f"- This learner is interested in: {', '.join(interests)}. Use one naturally when it fits — never force it." if interests else ""}
 
 Known recurring weaknesses for this learner: {", ".join(recent_errors) or "none recorded yet"}.
 Relevant long-term memory about this learner: {"; ".join(relevant_memories) or "none yet"}.

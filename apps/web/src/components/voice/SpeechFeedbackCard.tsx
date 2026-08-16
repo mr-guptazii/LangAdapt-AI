@@ -12,14 +12,13 @@ export interface SpeechMetrics {
 }
 
 export interface PronunciationInfo {
-  overall_score: number;
-  is_estimated: boolean;
-  provider: string;
+  status: "coming_soon";
+  message: string;
 }
 
-/** Renders real computed speech metrics. Pronunciation is always labeled when
- * it's an estimate (section 20) — never presented as if it were a precise
- * phoneme-level score. */
+/** Renders real computed speech metrics. Pronunciation has no real
+ * phoneme-level provider implemented yet, so it is never scored — not even
+ * as a labeled estimate — only shown as explicitly unavailable (section 20). */
 export function SpeechFeedbackCard({
   metrics, pronunciation, isMock,
 }: { metrics: SpeechMetrics; pronunciation: PronunciationInfo | null; isMock: boolean }) {
@@ -33,11 +32,10 @@ export function SpeechFeedbackCard({
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-4">
         <Metric label="Speaking" value={metrics.speaking_score} />
         <Metric label="Fluency" value={metrics.fluency_score} />
-        <Metric
-          label="Pronunciation"
-          value={pronunciation?.overall_score ?? null}
-          badge={pronunciation?.is_estimated ? "estimated" : undefined}
-        />
+        <div>
+          <span className="text-cream/40">Pronunciation</span>
+          <p className="font-medium text-cream/50">{pronunciation?.message ?? "Coming soon"}</p>
+        </div>
         <Metric label="Pace" value={metrics.speaking_rate_wpm} suffix=" wpm" noScoreColor />
       </div>
       <div className="mt-2 flex flex-wrap gap-2 text-cream/50">

@@ -16,17 +16,36 @@ from app.models.user import User
 
 
 async def get_overview(db: AsyncSession) -> dict:
+    # Seeded demo/showcase accounts (User.is_demo — see app/services/demo_learners.py
+    # and scripts/seed.py) are excluded from every business metric below so they
+    # can never inflate "how many real users do we have" numbers on the admin
+    # dashboard. get_system_health's raw row counts deliberately do NOT apply
+    # this filter — that's an infra sanity check, not a business metric.
     now = timezone_now()
-    total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-    active_sessions = (await db.execute(select(func.count()).select_from(LearningSession).where(LearningSession.is_active))).scalar_one()
+    total_users = (await db.execute(select(func.count()).select_from(User).where(~User.is_demo))).scalar_one()
+    active_sessions = (await db.execute(
+        select(func.count()).select_from(LearningSession)
+        .join(User, User.id == LearningSession.user_id)
+        .where(LearningSession.is_active, ~User.is_demo)
+    )).scalar_one()
 
     week_ago = now - timedelta(days=7)
     active_users_7d = (await db.execute(
-        select(func.count(func.distinct(AnalyticsEvent.user_id))).where(AnalyticsEvent.created_at >= week_ago)
+        select(func.count(func.distinct(AnalyticsEvent.user_id)))
+        .join(User, User.id == AnalyticsEvent.user_id)
+        .where(AnalyticsEvent.created_at >= week_ago, ~User.is_demo)
     )).scalar_one()
 
-    cefr_rows = (await db.execute(select(LearnerProfile.cefr_level, func.count()).group_by(LearnerProfile.cefr_level))).all()
-    lang_rows = (await db.execute(select(LearnerProfile.target_language_code, func.count()).group_by(LearnerProfile.target_language_code))).all()
+    cefr_rows = (await db.execute(
+        select(LearnerProfile.cefr_level, func.count())
+        .join(User, User.id == LearnerProfile.user_id).where(~User.is_demo)
+        .group_by(LearnerProfile.cefr_level)
+    )).all()
+    lang_rows = (await db.execute(
+        select(LearnerProfile.target_language_code, func.count())
+        .join(User, User.id == LearnerProfile.user_id).where(~User.is_demo)
+        .group_by(LearnerProfile.target_language_code)
+    )).all()
 
     return {
         "total_users": total_users,
@@ -77,6 +96,8 @@ async def get_ai_usage_summary(db: AsyncSession, *, days: int = 30) -> dict:
 async def get_common_errors(db: AsyncSession, *, limit: int = 10) -> list[dict]:
     rows = (await db.execute(
         select(LearnerError.category, func.count(func.distinct(LearnerError.learner_profile_id)), func.sum(LearnerError.occurrence_count))
+        .join(LearnerProfile, LearnerProfile.id == LearnerError.learner_profile_id)
+        .join(User, User.id == LearnerProfile.user_id).where(~User.is_demo)
         .group_by(LearnerError.category).order_by(func.sum(LearnerError.occurrence_count).desc()).limit(limit)
     )).all()
     return [{"category": category, "learners_affected": learners, "total_occurrences": int(total)} for category, learners, total in rows]
@@ -84,13 +105,15 @@ async def get_common_errors(db: AsyncSession, *, limit: int = 10) -> list[dict]:
 
 async def get_retention(db: AsyncSession) -> dict:
     now = timezone_now()
-    total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+    total_users = (await db.execute(select(func.count()).select_from(User).where(~User.is_demo))).scalar_one()
     if total_users == 0:
         return {"dau": 0, "wau": 0, "mau": 0, "dau_mau_ratio": 0.0}
 
     async def _active_since(cutoff: datetime) -> int:
         return (await db.execute(
-            select(func.count(func.distinct(AnalyticsEvent.user_id))).where(AnalyticsEvent.created_at >= cutoff)
+            select(func.count(func.distinct(AnalyticsEvent.user_id)))
+            .join(User, User.id == AnalyticsEvent.user_id)
+            .where(AnalyticsEvent.created_at >= cutoff, ~User.is_demo)
         )).scalar_one()
 
     dau = await _active_since(now - timedelta(days=1))

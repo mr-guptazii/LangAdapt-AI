@@ -17,7 +17,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.v1.auth import _login_limit, _register_limit
+from app.api.v1.auth import _forgot_password_limit, _login_limit, _register_limit, _reset_password_limit
 from app.api.v1.chat import _chat_limit
 from app.api.v1.practice import _generate_limit
 from app.api.v1.voice import _synthesize_limit, _transcribe_limit
@@ -39,6 +39,7 @@ _NOOP = lambda: None  # noqa: E731
 _RATE_LIMIT_OVERRIDES = {
     _register_limit: _NOOP, _login_limit: _NOOP, _chat_limit: _NOOP,
     _generate_limit: _NOOP, _transcribe_limit: _NOOP, _synthesize_limit: _NOOP,
+    _forgot_password_limit: _NOOP, _reset_password_limit: _NOOP,
 }
 
 

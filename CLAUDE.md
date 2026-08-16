@@ -43,12 +43,37 @@ assumed from file existence.
 - **Voice**: real mic capture → real Groq Whisper transcription → real
   deterministic speech-metric math (rate/pauses/fillers/fluency). TTS has a
   complete, ready-to-activate provider, currently mock only for lack of a
-  verified TTS-capable endpoint. Pronunciation is honestly mocked (confidence-
-  anchored estimate, `is_estimated: true` surfaced everywhere) — no real
-  phoneme-level provider exists to switch to yet.
-- **Memory**: pgvector read/write is real; embeddings are now a real
-  deterministic lexical (hashing-trick) provider by default (`EMBEDDING_PROVIDER=hashing`),
-  not the previous unconditional random-noise mock.
+  verified TTS-capable endpoint — the frontend visibly labels this ("device
+  voice") rather than presenting the browser fallback as production AI voice.
+  Pronunciation shows **no score at all**, not even a labeled estimate — a
+  "Pronunciation analysis coming soon" message — since no real phoneme-level
+  provider exists yet (fixed 2026-08-16: previously fabricated a
+  confidence-anchored estimate).
+- **Memory**: pgvector read/write is real; embeddings are a real deterministic
+  lexical (hashing-trick) provider by default (`EMBEDDING_PROVIDER=hashing`),
+  not random noise. **Cross-user isolation is explicitly tested**
+  (`tests/integration/test_memory_isolation.py`) — memories, conversations,
+  errors, vocabulary, and AI decision traces are proven unreachable across
+  users, including a direct call to the retrieval function bypassing the HTTP
+  layer entirely.
+- **Password reset**: a real, secure token-based flow (`app/services/auth_service.py`
+  `request_password_reset`/`reset_password`) — SHA-256-hashed tokens, 30-minute
+  expiry, single-use, no user-enumeration leak. No email transport is wired up
+  yet, so the frontend is honest about that limit (self-service email delivery
+  isn't live; contact support) rather than claiming a link was sent.
+- **Data export/deletion**: `/settings/export` returns the caller's real data
+  directly as a downloadable JSON file (no email needed). `/settings/account`
+  performs real deletion — the `User` row is removed and every owned row
+  cascades with it (learner profile, sessions, messages, errors, mastery,
+  vocabulary, memories, recommendations); the audit trail survives with the
+  actor reference cleared (`ON DELETE SET NULL`), not cascaded away.
+- **Interests**: now read by the conversation prompt (natural topic/example
+  hints) and the recommendation-phrasing prompt — previously captured at
+  onboarding and never read anywhere.
+- **Admin dashboard**: seeded demo/showcase accounts (`User.is_demo`) are
+  excluded from every business metric (`total_users`, CEFR/language
+  distribution, retention, common-errors) so they can never inflate what
+  looks like real production usage.
 - **Mastery, spaced repetition (SM-2-style), recommendation ranking,
   dashboard/progress/mistakes/vocabulary/practice pages**: all real,
   DB-backed, no fabricated numbers.
@@ -59,21 +84,16 @@ assumed from file existence.
 
 ## Known incomplete / honestly mocked (do not claim these are done)
 
-- **Forgot-password**: pure frontend mock (`setSent(true)`, no backend call at
-  all). No backend route, no reset-token model, no email sending anywhere in
-  the codebase.
-- **Data export / account deletion**: export claims "emailed to you shortly"
-  but no export file is ever generated and no email integration exists
-  anywhere. Deletion only flips `is_active = False` — not real erasure.
 - **`STORE_RAW_AUDIO` toggle**: exists as a real per-user setting but controls
   nothing — no code path ever writes raw audio to storage regardless of the
   toggle's value.
 - **Scenario engine**: schema column (`LearningSession.scenario`) and prompt
   parameter exist; nothing ever sets or reads them. No roleplay template
   catalog exists.
-- **Interest-based personalization**: `interests`/`preferred_topics` are
-  captured at onboarding and displayed in settings, never read by any
-  conversation/practice/recommendation logic.
+- **Interests in practice generation**: wired into conversation and
+  recommendations (see above), but practice-exercise content still targets
+  weak skills only, not interests — a bigger prompt-design change than the
+  additive hint used for the other two surfaces.
 - **Daily learning plan**: does not exist. The closest feature is the ranked
   top-3 recommendation list (`recommendation_service.py`), which is not a
   day-grouped plan with completion tracking.
@@ -86,6 +106,9 @@ assumed from file existence.
   summarization only fire if triggered manually.
 - **`get_curriculum()`**: dead code — its own docstring claims the
   adaptation/recommendation engines consult it; they don't.
+- **Pronunciation provider**: no real implementation exists to activate —
+  would need to be written from scratch against a real credentialed API
+  (Azure Speech or similar) when one is available.
 - **E2E tests**: none (Playwright/Cypress). Documented as a deliberate
   deprioritization in `docs/TESTING.md`, not an oversight.
 
@@ -123,6 +146,11 @@ assumed from file existence.
   false, `load_learner_context` substitutes default personality/interests
   before they ever reach agent state — a disabled learner's real traits never
   reach an LLM prompt even indirectly.
+- **Account deletion FK safety** (`app/models/system.py` `AuditLog.actor_user_id`,
+  `app/models/user.py` `User.teacher_id`): both changed to `ON DELETE SET NULL`
+  (migration `e5f6a7b8c9d0`) — without this, real account deletion would fail
+  outright the moment an account had ever done anything audit-logged (which is
+  every account, from registration onward).
 
 ## Known issues to watch
 
@@ -139,29 +167,33 @@ assumed from file existence.
   "recent_mistake" signal doesn't reflect improved performance on its own
   (spaced-repetition scheduling on `SkillMastery` does move correctly, which
   is a real signal, just a different one).
-- Render's blueprint (`render.yaml`) doesn't expose `STT_PROVIDER`,
-  `TTS_PROVIDER`, `PRONUNCIATION_PROVIDER`, or `EMBEDDING_PROVIDER` as
-  configurable env vars — they default to `mock`/`hashing` in every deployed
-  environment unless an operator adds them manually outside the blueprint.
+- Migrations `d4e5f6a7b8c9` and `e5f6a7b8c9d0` chain after the pgvector-merge
+  head (`c3d4e5f6a7b8`), so — like everything after that merge — they require
+  the `vector` extension to apply via a plain `alembic upgrade head`, even
+  though neither migration's own table needs it. Verified correct via
+  `alembic upgrade ... --sql` (offline SQL generation) and by manually
+  applying the equivalent DDL locally, since this dev machine's Postgres has
+  no pgvector installed. Not an issue on Render (pgvector is already applied
+  there) — see `test_memory_isolation.py`'s pgvector-dependent test, which
+  skips cleanly in the same situation rather than failing.
 
 ## Exact next steps (priority order)
 
-1. **P1**: wire `interests` into conversation topic / practice content
-   selection; give `teaching_strategy_agent` real influence over the same-turn
-   response (likely requires reordering the graph or feeding its decision back
-   into `conversation_agent`); build a real forgot-password flow; make data
-   export/deletion honest (real export endpoint, real erasure or an honest UI
-   caveat); add a Celery `beat` process to `docker-compose.yml`/`render.yaml`
-   so the periodic schedule actually fires.
+1. **P1**: wire `interests` into practice-generation content (conversation and
+   recommendations already do this); give `teaching_strategy_agent` real
+   influence over the same-turn response (likely requires reordering the graph
+   or feeding its decision back into `conversation_agent`); add a Celery
+   `beat` process to `docker-compose.yml`/`render.yaml` so the periodic
+   schedule actually fires; wire up real email delivery so the password-reset
+   flow becomes fully self-service.
 2. **P2**: nothing code-blocking — STT is real and live; TTS just needs a
-   verified-working endpoint + `TTS_PROVIDER=openai_tts` in Render's env vars;
-   pronunciation needs a real credentialed provider (Azure Speech or similar)
-   written from scratch when/if credentials exist.
+   verified-working endpoint + `TTS_PROVIDER=openai_tts` in Render's env vars
+   (now exposed in `render.yaml`); pronunciation needs a real credentialed
+   provider (Azure Speech or similar) written from scratch when/if
+   credentials exist.
 3. **P3**: wire Sentry (`SENTRY_DSN` is configured but `sentry_sdk.init()` is
    never called); expand structlog coverage past the current 7 files; add a
-   refresh-token endpoint; add `STT_PROVIDER`/`TTS_PROVIDER`/`EMBEDDING_PROVIDER`
-   to `render.yaml` so they're configurable without going outside the
-   blueprint.
+   refresh-token endpoint.
 4. **P4**: a real daily learning plan feature; Playwright E2E coverage; a
    notification delivery channel (email/push) once a provider is chosen;
    remove or wire `get_curriculum()`.
@@ -173,13 +205,21 @@ assumed from file existence.
 python -m pytest tests/ -q                    # full suite
 python -m ruff check .                         # lint
 python -m mypy app/ --ignore-missing-imports   # typecheck
-python -m alembic upgrade b2c3d4e5f6a7          # migrate (pgvector-independent branch — use `head` if pgvector is installed)
+python -m alembic upgrade head                  # migrate (requires pgvector — see "Known issues" above)
 python -m scripts.seed                          # seed languages/curriculum/demo account
 python -m scripts.seed_demo_learners             # seed the two personalization-test learners
 python -m uvicorn app.main:app --reload         # run locally
 
 # Frontend (from apps/web)
 npx tsc --noEmit && npx eslint . && npm run build
+
+# Docker (from repo root)
+docker build -f infrastructure/docker/Dockerfile.api -t lingoadapt-api .
+docker build -f infrastructure/docker/Dockerfile.worker -t lingoadapt-worker .
+docker build -f infrastructure/docker/Dockerfile.web -t lingoadapt-web .
+
+# Deploy: push to main triggers Render (API + worker, Docker rebuild + auto-migrate
+# via entrypoint.sh) and Vercel (frontend) simultaneously. No separate deploy command.
 ```
 
 ## Environment variables that matter
@@ -189,7 +229,18 @@ npx tsc --noEmit && npx eslint . && npm run build
   `OPENAI_MODEL_STRONG=llama-3.3-70b-versatile` — real conversation/error-analysis/
   adaptation/teaching-strategy/practice/recommendation generation.
 - `STT_PROVIDER=openai_whisper` + `STT_MODEL=whisper-large-v3-turbo` — real
-  transcription (same Groq key/base URL).
+  transcription (same Groq key/base URL). Now exposed as configurable
+  `render.yaml` blueprint vars (previously had to be added manually outside
+  the blueprint).
 - `EMBEDDING_PROVIDER=hashing` (default) — real, no key needed.
+- `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` — provisioned automatically by
+  `render.yaml` (`fromDatabase`/`fromService`/`generateValue`), never
+  hardcoded anywhere in the codebase.
+- `CORS_ORIGINS` — must be the real deployed frontend origin (e.g.
+  `["https://lang-adapt-ai.vercel.app"]`), set manually post-deploy since the
+  Vercel URL isn't known at first Render deploy.
+- `NEXT_PUBLIC_API_URL` (Vercel, build-time) — baked into the frontend bundle
+  at build time, not runtime; changing it requires a fresh Vercel build, not
+  just an env var update.
 - Everything else (`TTS_PROVIDER`, `PRONUNCIATION_PROVIDER`) stays `mock`
   until a verified credential/endpoint exists — see "Known incomplete" above.

@@ -25,6 +25,15 @@ class TokenResponse(BaseModel):
     onboarding_completed: bool
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 # ---- onboarding ----
 class OnboardingRequest(BaseModel):
     native_language_code: str

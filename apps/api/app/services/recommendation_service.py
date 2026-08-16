@@ -60,9 +60,12 @@ async def generate_recommendations(db: AsyncSession, *, learner_profile: Learner
         return []
 
     provider = get_llm_provider()
+    account = await learner_tools.get_profile_settings(db, learner_profile.user_id)
+    interests = account.interests if (account and account.personalization_enabled) else []
     learner_summary = {
         "cefr_level": learner_profile.cefr_level, "grammar_ability": learner_profile.grammar_ability,
         "vocabulary_ability": learner_profile.vocabulary_ability, "engagement_score": learner_profile.engagement_score,
+        "interests": interests,
     }
     messages = build_recommendation_prompt(learner_summary=learner_summary, candidates=candidates[:top_n])
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]

@@ -14,10 +14,10 @@ from app.database.session import get_db
 from app.models.learner import LearnerProfile
 from app.models.session import LearningSession
 from app.models.user import User
-from app.models.voice import PronunciationScore, SpeechAnalysis, VoiceSession
+from app.models.voice import SpeechAnalysis, VoiceSession
 from app.services import event_service
 from app.voice import analysis as speech_analysis_lib
-from app.voice.factory import get_pronunciation_provider, get_stt_provider, get_tts_provider
+from app.voice.factory import get_stt_provider, get_tts_provider
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
@@ -77,21 +77,13 @@ async def transcribe(
     await db.flush()
     event_service.emit(db, event_type=event_service.VOICE_SESSION_STARTED, user_id=user.id, session_id=session_id, payload={"provider": stt.name})
 
-    pronunciation_payload = None
-    pron_overall_score = None
-    if expected_text:
-        pron_provider = get_pronunciation_provider()
-        pron = await pron_provider.score(audio_bytes, expected_text, language_code, transcription.confidence)
-        pron_overall_score = pron.overall_score
-        pronunciation_payload = {"overall_score": pron.overall_score, "is_estimated": pron.is_estimated, "provider": pron.provider}
-        event_service.emit(
-            db, event_type=event_service.PRONUNCIATION_EVALUATED, user_id=user.id, session_id=session_id,
-            payload={"overall_score": pron.overall_score, "is_estimated": pron.is_estimated},
-        )
-
+    # No real phoneme-level pronunciation provider is implemented yet (only a
+    # confidence-anchored mock exists — see app/voice/providers/mock_providers.py).
+    # Rather than fabricate and persist a score (even one labeled "estimated"),
+    # this is surfaced honestly as unavailable. speaking_score is therefore
+    # fluency-only until a real provider exists to blend in.
+    pronunciation_payload = {"status": "coming_soon", "message": "Pronunciation analysis coming soon"}
     speaking_score = metrics.fluency_score
-    if speaking_score is not None and pron_overall_score is not None:
-        speaking_score = round(0.5 * speaking_score + 0.5 * pron_overall_score, 1)
 
     speech_row = SpeechAnalysis(
         voice_session_id=voice_session.id, transcript=transcription.transcript, asr_confidence=transcription.confidence,
@@ -100,13 +92,6 @@ async def transcribe(
     )
     db.add(speech_row)
     await db.flush()
-
-    if pronunciation_payload:
-        db.add(PronunciationScore(
-            speech_analysis_id=speech_row.id, provider=pronunciation_payload["provider"],
-            overall_score=pronunciation_payload["overall_score"], is_estimated=pronunciation_payload["is_estimated"],
-            phoneme_scores=None,
-        ))
 
     await db.commit()
     return {

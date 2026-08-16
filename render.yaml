@@ -77,6 +77,23 @@ services:
       # step 3.
       - key: CORS_ORIGINS
         sync: false
+      # Voice + embeddings: previously omitted entirely from this blueprint,
+      # meaning every deployed environment silently ran STT/TTS/pronunciation/
+      # embeddings as mock regardless of what real provider code existed —
+      # an operator had to know to add these manually outside the blueprint.
+      # Leave blank for mock defaults; see .env.example for real values
+      # (e.g. STT_PROVIDER=openai_whisper + STT_MODEL=whisper-large-v3-turbo
+      # against the same Groq key/base URL as the LLM vars above).
+      - key: STT_PROVIDER
+        sync: false
+      - key: STT_MODEL
+        sync: false
+      - key: TTS_PROVIDER
+        sync: false
+      - key: TTS_MODEL
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        sync: false
 
   - name: lingoadapt-worker
     type: worker

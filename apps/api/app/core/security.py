@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -35,3 +37,15 @@ def decode_access_token(token: str) -> UUID | None:
         return UUID(sub) if sub else None
     except (JWTError, ValueError):
         return None
+
+
+def generate_reset_token() -> tuple[str, str]:
+    """Returns (raw_token, token_hash). Only the hash is ever persisted — see
+    PasswordResetToken's docstring. raw_token is high-entropy (256 bits) and
+    URL-safe so it can go directly into a reset link."""
+    raw = secrets.token_urlsafe(32)
+    return raw, hash_reset_token(raw)
+
+
+def hash_reset_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
