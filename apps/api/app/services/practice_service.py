@@ -5,6 +5,7 @@ source_skill_id back to WHY it was generated. A simple content-hash fingerprint
 prevents near-duplicate questions being served repeatedly (section 88).
 """
 import hashlib
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -27,6 +28,44 @@ from app.tools import learner_tools
 
 def _fingerprint(prompt: str) -> str:
     return hashlib.sha256(prompt.strip().lower().encode()).hexdigest()[:32]
+
+
+def _is_gradable(ex) -> bool:
+    """Defensive filter (section 12): the LLM-generated exercise prompt in
+    app/ai/prompts/practice_generator.py asks for self-consistent exercises,
+    but the model does not always comply (observed live: a multiple_choice
+    correct_answer missing from its own options; a correction exercise with
+    nothing actually wrong to fix; a fill_blank prompt with no blank in it)
+    — never persist a question the app's exact-string-match grading
+    (submit_attempt) can't actually score fairly. Deliberately does NOT try
+    to check topical overlap between prompt and correct_answer: a correct
+    fill_blank answer routinely shares no literal words with its prompt
+    (e.g. prompt hints "(go)", correct_answer is "went") — that is a normal
+    verb-conjugation exercise, not a broken one.
+    """
+    has_blank = bool(re.search(r"_{2,}", ex.prompt))
+    if ex.question_type == "multiple_choice" and ex.options and ex.correct_answer not in ex.options:
+        return False
+    if ex.question_type == "correction":
+        if ex.prompt.strip().lower() == ex.correct_answer.strip().lower():
+            return False
+        if has_blank:
+            return False
+    if ex.question_type == "fill_blank":
+        if not has_blank:
+            return False
+        # A blank immediately preceded by a leading subject word (e.g. "I
+        # ______ my breakfast.") means correct_answer must still start with
+        # that same subject (observed live: the model sometimes drops it,
+        # e.g. "eat my breakfast." — ungradable against a learner's full
+        # sentence). Sentences where the blank isn't the leading word aren't
+        # checked here; that structure doesn't have this failure mode.
+        leading = re.match(r"^(\w+)\s*_{2,}", ex.prompt)
+        if leading:
+            answer_start = re.match(r"^(\w+)", ex.correct_answer.strip())
+            if not answer_start or answer_start.group(1).lower() != leading.group(1).lower():
+                return False
+    return True
 
 
 async def generate_practice_for_weakness(
@@ -53,8 +92,13 @@ async def generate_practice_for_weakness(
         count=count,
     )
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.FAST, max_tokens=1200)
-    ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.FAST)
+    # STRONG tier (not FAST): live testing showed the FAST model producing
+    # structurally broken exercises (correct_answer unrelated to the prompt,
+    # missing from a multiple_choice's own options, etc.) even with an
+    # explicitly constrained prompt — this content is graded, unlike a
+    # conversational reply, so it needs the more reliable tier.
+    result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.STRONG, max_tokens=1200)
+    ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.STRONG)
 
     # Anti-repetition: skip near-duplicates already in this learner's recent question set.
     existing_fps = set((await db.execute(
@@ -63,6 +107,8 @@ async def generate_practice_for_weakness(
 
     created: list[PracticeQuestion] = []
     for ex in result.exercises:
+        if not _is_gradable(ex):
+            continue
         fp = _fingerprint(ex.prompt)
         if fp in existing_fps:
             continue

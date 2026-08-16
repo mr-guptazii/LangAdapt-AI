@@ -30,7 +30,28 @@ async def conversation_agent(state: TutorState) -> dict:
         user_message=state["user_message"],
     )
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, ConversationOutput, tier=ModelTier.STRONG, max_tokens=600)
+
+    # A malformed/failed tool call from the underlying provider (observed live:
+    # Groq occasionally fails its own function-call validation even after
+    # tenacity's internal retries — same root cause as error_analysis_agent's
+    # guard below) must never surface as a hard 500 that kills the whole turn
+    # (previously observed in production: "Sorry, something went wrong
+    # reaching the tutor."). The learner still gets a reply, just not a
+    # personalized one for this one turn.
+    try:
+        result, usage = await provider.structured(llm_messages, ConversationOutput, tier=ModelTier.STRONG, max_tokens=600)
+    except Exception:
+        logger.warning("conversation_agent_failed_degrading_gracefully", exc_info=True)
+        return {
+            "conversation_output": {
+                "response": "Sorry, I didn't quite catch that — could you say it again?",
+                "follow_up_question": "",
+                "correction_needed": False,
+                "correction_priority": "none",
+                "teaching_intent": "",
+            },
+            "agents_invoked": state.get("agents_invoked", []) + ["conversation_agent"],
+        }
 
     usage_log = state.get("usage_log", [])
     usage_log.append({"node": "conversation_agent", "provider": usage.provider, "model": usage.model,
