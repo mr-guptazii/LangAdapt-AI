@@ -223,7 +223,10 @@ export default function OnboardingPage() {
                       </button>
                       <div className="flex-1">
                         {recorder.state === "recording" ? (
-                          <Waveform levels={recorder.levels} active />
+                          <button onClick={toggleSpeakingRecorder} className="focus-ring w-full text-left">
+                            <p className="mb-1 text-xs font-medium text-red-300">Recording… tap the button (or here) to stop</p>
+                            <Waveform levels={recorder.levels} active />
+                          </button>
                         ) : (
                           <p className="text-xs text-cream/50">
                             {transcribing ? "Transcribing your answer…" : "Tap to record your spoken answer — it'll be transcribed below for you to review."}
