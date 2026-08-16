@@ -3,9 +3,21 @@ from app.ai.prompts.base import SAFETY_PREAMBLE
 _SKILL_GUIDANCE = {
     # The learner sees ONLY the `prompt` field (plus `options`, for multiple_choice) —
     # nothing else renders on screen. Every instruction below exists because a model
-    # left unguided will write a meta-reference ("read the following text...") without
-    # actually including the text, or fall back to placeholder options ("A", "B", "C",
-    # "D") — both observed live in production.
+    # left unguided will write a meta-reference ("read the following text...", "what
+    # does the expression [mean]") without actually including the thing it refers to,
+    # or fall back to placeholder options ("A", "B", "C", "D") — both observed live
+    # in production, across multiple skill areas.
+    "vocabulary": (
+        "`prompt` MUST include the actual word, phrase, or idiom being tested, spelled "
+        "out in full inside the question text itself — e.g. \"What does the expression "
+        "'break the ice' mean?\", never \"What does the expression [mean]?\" with the "
+        "expression itself missing."
+    ),
+    "grammar": (
+        "`prompt` MUST include the actual example sentence being tested, spelled out in "
+        "full inside the question text itself — never refer to \"the sentence\" or \"the "
+        "example\" without the words of that sentence actually being present."
+    ),
     "reading": (
         'The `prompt` field MUST be fully self-contained: write a short passage (3-6 '
         "sentences, appropriate for this CEFR level) directly inside `prompt`, followed "
@@ -41,6 +53,12 @@ You are the Adaptive Assessment component for {target_language}. Generate ONE pl
 question for skill area "{skill_area}" at CEFR difficulty {difficulty}. Prefer multiple_choice
 with exactly 4 options and one unambiguous correct_answer, unless skill_area is "writing" or
 "speaking", in which case use a free_response prompt instead.
+
+The learner sees ONLY the `prompt` field (and `options`, for multiple_choice) — there is no
+separate passage/word/sentence field and nothing else renders on screen. `prompt` must be fully
+self-contained: never refer to a word, expression, sentence, or text ("the expression above",
+"this sentence", "the following text") without its exact words actually being written out
+inside `prompt` itself.
 
 {guidance}
 
