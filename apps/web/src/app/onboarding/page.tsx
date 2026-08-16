@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { Mic, Square, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Waveform } from "@/components/voice/Waveform";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
 const LANGUAGES = [
   { code: "en", name: "English" }, { code: "es", name: "Spanish" }, { code: "fr", name: "French" },
@@ -37,6 +40,9 @@ export default function OnboardingPage() {
   const [answer, setAnswer] = useState("");
   const [assessmentResult, setAssessmentResult] = useState<{ cefr_level: string; strengths: string[]; weaknesses: string[] } | null>(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
+  const recorder = useVoiceRecorder();
 
   const steps = ["Welcome", "Languages", "Goals", "Placement", "Preferences", "Done"];
 
@@ -73,6 +79,28 @@ export default function OnboardingPage() {
       }
     } finally {
       setAssessmentLoading(false);
+    }
+  }
+
+  async function toggleSpeakingRecorder() {
+    setTranscribeError(null);
+    if (recorder.state === "recording") {
+      const blob = await recorder.stop();
+      if (!blob || blob.size === 0) return;
+      setTranscribing(true);
+      try {
+        const form = new FormData();
+        form.append("audio", blob, "answer.webm");
+        if (question?.prompt) form.append("expected_text", question.prompt);
+        const res = await api.postForm<{ transcript: string; is_mock: boolean }>("/api/v1/voice/transcribe", form);
+        setAnswer(res.transcript);
+      } catch {
+        setTranscribeError("Couldn't process that recording — please try again, or type your answer instead.");
+      } finally {
+        setTranscribing(false);
+      }
+    } else if (recorder.state === "idle" || recorder.state === "error") {
+      await recorder.start();
     }
   }
 
@@ -175,10 +203,42 @@ export default function OnboardingPage() {
                   ))}
                 </div>
               ) : (
-                <textarea
-                  value={answer} onChange={(e) => setAnswer(e.target.value)} rows={4}
-                  className="focus-ring mt-4 w-full rounded-xl border border-white/10 bg-navy-800/60 p-3 text-sm text-cream"
-                />
+                <>
+                  {question.skill_area === "speaking" && (
+                    <div className="mt-4 flex items-center gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3">
+                      <button
+                        onClick={toggleSpeakingRecorder}
+                        aria-label={recorder.state === "recording" ? "Stop recording" : "Record your spoken answer"}
+                        disabled={transcribing || recorder.state === "requesting"}
+                        className={`focus-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50 ${recorder.state === "recording" ? "bg-red-500/20 text-red-300 animate-pulse-soft" : "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20"}`}
+                      >
+                        {transcribing || recorder.state === "requesting" ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : recorder.state === "recording" ? (
+                          <Square size={16} />
+                        ) : (
+                          <Mic size={18} />
+                        )}
+                      </button>
+                      <div className="flex-1">
+                        {recorder.state === "recording" ? (
+                          <Waveform levels={recorder.levels} active />
+                        ) : (
+                          <p className="text-xs text-cream/50">
+                            {transcribing ? "Transcribing your answer…" : "Tap to record your spoken answer — it'll be transcribed below for you to review."}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {recorder.error && <p className="mt-1 text-xs text-red-300">{recorder.error}</p>}
+                  {transcribeError && <p className="mt-1 text-xs text-red-300">{transcribeError}</p>}
+                  <textarea
+                    value={answer} onChange={(e) => setAnswer(e.target.value)} rows={4}
+                    placeholder={question.skill_area === "speaking" ? "Your transcribed answer will appear here — feel free to edit it." : undefined}
+                    className="focus-ring mt-4 w-full rounded-xl border border-white/10 bg-navy-800/60 p-3 text-sm text-cream"
+                  />
+                </>
               )}
               <Button className="mt-6" disabled={!answer || assessmentLoading} onClick={submitAnswer}>
                 {assessmentLoading ? "Thinking…" : "Next question"}
