@@ -1,4 +1,17 @@
 from app.ai.prompts.base import SAFETY_PREAMBLE, wrap_learner_message
+from app.learning.languages.en.grammar_topics import EN_SKILLS
+
+# The real, curated skill taxonomy (app/models/mastery.py rows are keyed off
+# these exact codes). error_analysis_agent's `category` field used to be
+# free text with only a loose example list — the model would readily invent
+# a natural-sounding code like "vocabulary" that was never actually seeded
+# (the real code is "vocabulary_range"), and any downstream lookup by that
+# category (e.g. /practice/next's "give me practice for my weakest skill")
+# would silently fail to find a matching skill. Constraining the prompt to
+# this exact list is the fix at the source; app/api/v1/practice.py also got
+# a defensive fallback for any category that still doesn't match, since an
+# LLM's output should never be trusted as a guaranteed foreign key.
+_VALID_CATEGORIES = ", ".join(s["code"] for s in EN_SKILLS)
 
 
 def build_error_analysis_prompt(
@@ -26,8 +39,8 @@ each as its own entry rather than stopping after the first one you notice.
 {history_block}
 For each mistake found:
 - type: grammar|vocabulary|spelling|fluency
-- category: a short stable code (e.g. past_tense, articles, prepositions, subject_verb_agreement,
-  word_choice, collocation, spelling, capitalization)
+- category: MUST be exactly one of these codes (pick the closest match, never invent a new one):
+  {_VALID_CATEGORIES}, spelling, capitalization
 - incorrect: the exact incorrect span
 - correct: the corrected span
 - severity: low (barely matters) | medium (worth noting) | high (blocks understanding)

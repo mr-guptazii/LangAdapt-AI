@@ -4,7 +4,10 @@ from app.ai.prompts.conversation import build_conversation_prompt
 from app.ai.prompts.error_analysis import build_error_analysis_prompt
 from app.ai.providers.base import LLMMessage, ModelTier
 from app.ai.providers.factory import get_llm_provider
+from app.core.logging import get_logger
 from app.schemas.agent_io import ConversationOutput, ErrorAnalysisOutput
+
+logger = get_logger(__name__)
 
 
 async def conversation_agent(state: TutorState) -> dict:
@@ -50,7 +53,23 @@ async def error_analysis_agent(state: TutorState) -> dict:
         conversation_history=state.get("conversation_context", []),
     )
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, ErrorAnalysisOutput, tier=ModelTier.FAST, max_tokens=500)
+
+    # A malformed/failed tool call from the underlying provider (observed live:
+    # Groq's FAST-tier model occasionally fails its own function-call validation
+    # even after tenacity's internal retries) must never crash the whole
+    # conversation turn over a missed error-detection pass — the learner should
+    # still get a reply. Degrades to "no errors this turn" instead, same
+    # graceful-degradation philosophy as the rate limiter and memory writes
+    # elsewhere in this codebase.
+    try:
+        result, usage = await provider.structured(llm_messages, ErrorAnalysisOutput, tier=ModelTier.FAST, max_tokens=500)
+    except Exception:
+        logger.warning("error_analysis_failed_degrading_gracefully", exc_info=True)
+        return {
+            "detected_errors": [],
+            "is_significant_learning_event": False,
+            "agents_invoked": state.get("agents_invoked", []) + ["error_analysis_agent"],
+        }
 
     usage_log = state.get("usage_log", [])
     usage_log.append({"node": "error_analysis_agent", "provider": usage.provider, "model": usage.model,

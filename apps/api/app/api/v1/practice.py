@@ -29,18 +29,36 @@ async def next_practice(
     """Generates exercises for the given skill, or the learner's current top
     weakness if no skill_code is provided (section 12: never random when a
     personalized weakness is available)."""
-    if skill_code is None:
-        top_error = (await db.execute(
-            select(LearnerError).where(LearnerError.learner_profile_id == learner_profile.id)
-            .order_by(LearnerError.weakness_score.desc()).limit(1)
-        )).scalar_one_or_none()
-        skill_code = top_error.category if top_error else "present_simple"
+    skill: Skill | None = None
 
-    skill = (await db.execute(
-        select(Skill).where(Skill.language_code == learner_profile.target_language_code, Skill.code == skill_code)
-    )).scalar_one_or_none()
+    if skill_code is None:
+        # error_analysis_agent's `category` field is LLM-generated free text
+        # (see app/ai/prompts/error_analysis.py) — not guaranteed to exactly
+        # match one of the curated Skill codes. Observed live: a real error
+        # categorized "vocabulary" (the closest real skill code is actually
+        # "vocabulary_range") 404'd this endpoint outright on an auto-derived
+        # lookup, which is never something the caller did wrong. Walk recent
+        # errors by weakness until one actually resolves to a real skill,
+        # instead of trusting only the single highest-weakness category.
+        top_errors = (await db.execute(
+            select(LearnerError).where(LearnerError.learner_profile_id == learner_profile.id)
+            .order_by(LearnerError.weakness_score.desc()).limit(5)
+        )).scalars().all()
+        for err in top_errors:
+            skill = (await db.execute(
+                select(Skill).where(Skill.language_code == learner_profile.target_language_code, Skill.code == err.category)
+            )).scalar_one_or_none()
+            if skill:
+                break
+        if skill is None:
+            skill_code = "present_simple"  # a real, always-seeded default
+
     if skill is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown skill '{skill_code}' for this language.")
+        skill = (await db.execute(
+            select(Skill).where(Skill.language_code == learner_profile.target_language_code, Skill.code == skill_code)
+        )).scalar_one_or_none()
+        if skill is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown skill '{skill_code}' for this language.")
 
     questions = await practice_service.generate_practice_for_weakness(db, learner_profile=learner_profile, skill=skill, count=count, user_id=user.id)
     await db.commit()
