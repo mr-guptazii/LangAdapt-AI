@@ -1,14 +1,52 @@
 from app.ai.prompts.base import SAFETY_PREAMBLE
 
+_SKILL_GUIDANCE = {
+    # The learner sees ONLY the `prompt` field (plus `options`, for multiple_choice) —
+    # nothing else renders on screen. Every instruction below exists because a model
+    # left unguided will write a meta-reference ("read the following text...") without
+    # actually including the text, or fall back to placeholder options ("A", "B", "C",
+    # "D") — both observed live in production.
+    "reading": (
+        'The `prompt` field MUST be fully self-contained: write a short passage (3-6 '
+        "sentences, appropriate for this CEFR level) directly inside `prompt`, followed "
+        "by a comprehension question about it. Never write a meta-reference like 'read "
+        "the following text' or 'this passage' without the passage's actual words being "
+        "part of `prompt` — there is no separate passage field."
+    ),
+    "listening": (
+        "There is no audio playback in this assessment, so the `prompt` field MUST open "
+        "with a short spoken-style passage written out as text (3-5 sentences, framed as "
+        "something someone said or announced), followed by a comprehension question about "
+        "it. Never reference audio the learner can't actually hear."
+    ),
+    "writing": (
+        "Use question_type \"free_response\". `prompt` should ask the learner to write a "
+        "short response (1-3 sentences) demonstrating a specific grammar point or "
+        "vocabulary use at this level. correct_answer should describe the key criteria a "
+        "correct answer must include, not one fixed string."
+    ),
+    "speaking": (
+        "Use question_type \"free_response\". `prompt` should ask the learner to say a "
+        "short spoken response (1-2 sentences) aloud. correct_answer should describe the "
+        "key criteria a correct answer must include, not one fixed string."
+    ),
+}
+
 
 def build_assessment_question_prompt(*, target_language: str, skill_area: str, difficulty: str) -> list[dict]:
+    guidance = _SKILL_GUIDANCE.get(skill_area, "")
     system = f"""{SAFETY_PREAMBLE}
 
 You are the Adaptive Assessment component for {target_language}. Generate ONE placement-test
 question for skill area "{skill_area}" at CEFR difficulty {difficulty}. Prefer multiple_choice
 with exactly 4 options and one unambiguous correct_answer, unless skill_area is "writing" or
-"speaking", in which case use a free_response prompt instead (correct_answer should describe
-the key criteria a correct answer must include).
+"speaking", in which case use a free_response prompt instead.
+
+{guidance}
+
+For multiple_choice questions: every option must be a complete, substantive answer choice
+written out in full — never a bare letter like "A"/"B"/"C"/"D" and never a placeholder — and
+one of them must exactly match correct_answer.
 
 Respond with the emit_generatedexercise tool using the GeneratedExercise schema
 (question_type should be "multiple_choice" or "free_response")."""
