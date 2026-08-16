@@ -28,6 +28,13 @@ DIFFICULTY_STEP = 0.18  # ability move per answer, tapering as question count gr
 # at all ("What is the correct time to go to bed every night?").
 _MULTIPLE_CHOICE_SKILLS = {"vocabulary", "grammar", "reading", "listening"}
 
+# reading/listening are the two skill areas whose guidance requires an actual
+# passage followed by a question about it — unlike grammar's fill-in-the-blank
+# style ("I go to school every day at_____."), which is a valid prompt with no
+# "?" at all. Observed live even after strengthening the prompt: the model
+# sometimes writes the passage and stops, never asking anything about it.
+_MUST_CONTAIN_QUESTION_MARK = {"reading", "listening"}
+
 # Mirrors the LANGUAGES list in apps/web/src/app/onboarding/page.tsx. The LLM
 # prompt needs a human-readable language name, not an ISO code — without this,
 # question generation had no real signal for which language it was testing and
@@ -73,12 +80,16 @@ async def _generate_next_question(
     tier = ModelTier.FAST
     result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
 
-    if skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) != 4):
+    bad_options = skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) != 4)
+    bad_missing_question = skill_area in _MUST_CONTAIN_QUESTION_MARK and "?" not in result.prompt
+    if bad_options or bad_missing_question:
         # Retry once against the larger STRONG-tier model rather than accepting a
-        # structurally broken question — no options to render, or a wrong option
-        # count (observed live: 7 options for one "reading" question, several of
-        # them independently true statements, making the correct answer ambiguous).
-        # Cheap insurance since this only fires on a real failure, not every call.
+        # structurally broken question — no options to render, a wrong option count
+        # (observed live: 7 options for one "reading" question, several of them
+        # independently true statements, making the correct answer ambiguous), or a
+        # reading/listening passage with no actual question asked about it (observed
+        # live even after strengthening the prompt to explicitly require one). Cheap
+        # insurance since this only fires on a real failure, not every call.
         tier = ModelTier.STRONG
         result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
 
