@@ -91,6 +91,7 @@ export default function OnboardingPage() {
       try {
         const form = new FormData();
         form.append("audio", blob, "answer.webm");
+        form.append("target_language_code", target);
         if (question?.prompt) form.append("expected_text", question.prompt);
         const res = await api.postForm<{ transcript: string; is_mock: boolean }>("/api/v1/voice/transcribe", form);
         setAnswer(res.transcript);

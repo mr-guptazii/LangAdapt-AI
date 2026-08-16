@@ -50,6 +50,16 @@ async def get_learner_profile(
     return profile
 
 
+async def get_learner_profile_optional(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> LearnerProfile | None:
+    """Same lookup as get_learner_profile but returns None instead of 404ing —
+    for endpoints (e.g. voice transcription) that are also used pre-onboarding,
+    during the placement assessment, before a LearnerProfile row exists."""
+    result = await db.execute(select(LearnerProfile).where(LearnerProfile.user_id == user.id))
+    return result.scalar_one_or_none()
+
+
 def require_owns(resource_user_id: UUID, user: User) -> None:
     if resource_user_id != user.id and not user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this resource")

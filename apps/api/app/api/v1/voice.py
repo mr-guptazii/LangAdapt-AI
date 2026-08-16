@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_settings
-from app.core.deps import get_current_user, get_learner_profile
+from app.core.deps import get_current_user, get_learner_profile, get_learner_profile_optional
 from app.core.rate_limit import RateLimit
 from app.database.session import get_db
 from app.models.learner import LearnerProfile
@@ -31,9 +31,10 @@ _synthesize_limit = RateLimit(times=40, seconds=60, scope="voice_synthesize")
 async def transcribe(
     session_id: UUID | None = Form(None),
     expected_text: str | None = Form(None),
+    target_language_code: str | None = Form(None),
     audio: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    learner_profile: LearnerProfile = Depends(get_learner_profile),
+    learner_profile: LearnerProfile | None = Depends(get_learner_profile_optional),
     db: AsyncSession = Depends(get_db),
 ):
     audio_bytes = await audio.read()
@@ -41,6 +42,12 @@ async def transcribe(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Audio file too large.")
     if not audio_bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty audio upload.")
+
+    # No learner_profile yet means this is a pre-onboarding call (the placement
+    # assessment's speaking questions) — fall back to the caller-supplied target
+    # language and a floor difficulty rather than 404ing on "complete onboarding first".
+    language_code = learner_profile.target_language_code if learner_profile else (target_language_code or "en")
+    difficulty = learner_profile.current_difficulty if learner_profile else "A1"
 
     session: LearningSession | None = None
     if session_id is not None:
@@ -50,13 +57,13 @@ async def transcribe(
     else:
         # Voice-first interactions (no prior text turn) create their own session,
         # mirroring chat_service._get_or_create_session's behavior for text.
-        session = LearningSession(user_id=user.id, mode="speaking", started_at=datetime.now(timezone.utc), difficulty=learner_profile.current_difficulty)
+        session = LearningSession(user_id=user.id, mode="speaking", started_at=datetime.now(timezone.utc), difficulty=difficulty)
         db.add(session)
         await db.flush()
     session_id = session.id
 
     stt = get_stt_provider()
-    transcription = await stt.transcribe(audio_bytes, audio.content_type or "audio/webm", learner_profile.target_language_code)
+    transcription = await stt.transcribe(audio_bytes, audio.content_type or "audio/webm", language_code)
 
     # Real, deterministic speech-metric computation (section 19-20) — runs on
     # both real (Whisper) and mock timing data via the same code path.
@@ -74,7 +81,7 @@ async def transcribe(
     pron_overall_score = None
     if expected_text:
         pron_provider = get_pronunciation_provider()
-        pron = await pron_provider.score(audio_bytes, expected_text, learner_profile.target_language_code, transcription.confidence)
+        pron = await pron_provider.score(audio_bytes, expected_text, language_code, transcription.confidence)
         pron_overall_score = pron.overall_score
         pronunciation_payload = {"overall_score": pron.overall_score, "is_estimated": pron.is_estimated, "provider": pron.provider}
         event_service.emit(
