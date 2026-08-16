@@ -21,28 +21,47 @@ from app.services import ai_usage_service, event_service
 SKILL_AREAS = ["vocabulary", "grammar", "reading", "listening", "writing", "speaking"]
 DIFFICULTY_STEP = 0.18  # ability move per answer, tapering as question count grows
 
+# Mirrors the LANGUAGES list in apps/web/src/app/onboarding/page.tsx. The LLM
+# prompt needs a human-readable language name, not an ISO code — without this,
+# question generation had no real signal for which language it was testing and
+# would pick one essentially at random (observed live: an English-onboarding
+# user got a French vocabulary question).
+LANGUAGE_NAMES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German", "it": "Italian",
+    "pt": "Portuguese", "ja": "Japanese", "zh": "Mandarin Chinese", "hi": "Hindi",
+}
+
+
+def _language_name(code: str | None) -> str:
+    return LANGUAGE_NAMES.get(code or "", "English")
+
 
 def _difficulty_for_ability(ability: float) -> str:
     idx = min(len(CEFR_ORDER) - 1, max(0, round(ability * (len(CEFR_ORDER) - 1))))
     return CEFR_ORDER[idx]
 
 
-async def start_assessment(db: AsyncSession, *, user_id: UUID) -> tuple[AssessmentSession, AssessmentQuestion]:
+async def start_assessment(
+    db: AsyncSession, *, user_id: UUID, target_language_code: str | None = None
+) -> tuple[AssessmentSession, AssessmentQuestion]:
     session = AssessmentSession(user_id=user_id, started_at=datetime.now(timezone.utc), current_ability_estimate=0.35, current_difficulty="A2")
     db.add(session)
     await db.flush()
     event_service.emit(db, event_type=event_service.ASSESSMENT_STARTED, user_id=user_id, payload={})
-    question = await _generate_next_question(db, session, skill_area=SKILL_AREAS[0], order_index=0, user_id=user_id)
+    question = await _generate_next_question(
+        db, session, skill_area=SKILL_AREAS[0], order_index=0, user_id=user_id, target_language_code=target_language_code
+    )
     await db.commit()
     return session, question
 
 
 async def _generate_next_question(
-    db: AsyncSession, session: AssessmentSession, *, skill_area: str, order_index: int, user_id: UUID | None = None
+    db: AsyncSession, session: AssessmentSession, *, skill_area: str, order_index: int,
+    user_id: UUID | None = None, target_language_code: str | None = None,
 ) -> AssessmentQuestion:
     provider = get_llm_provider()
     difficulty = _difficulty_for_ability(session.current_ability_estimate)
-    messages = build_assessment_question_prompt(target_language="the target language", skill_area=skill_area, difficulty=difficulty)
+    messages = build_assessment_question_prompt(target_language=_language_name(target_language_code), skill_area=skill_area, difficulty=difficulty)
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
     result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=ModelTier.FAST, max_tokens=400)
     ai_usage_service.log(db, user_id=user_id, session_id=None, node="assessment_question_generator", usage=usage, tier=ModelTier.FAST)
@@ -57,7 +76,8 @@ async def _generate_next_question(
 
 
 async def submit_answer(
-    db: AsyncSession, *, session: AssessmentSession, question: AssessmentQuestion, answer: str, user_id: UUID | None = None
+    db: AsyncSession, *, session: AssessmentSession, question: AssessmentQuestion, answer: str,
+    user_id: UUID | None = None, target_language_code: str | None = None,
 ) -> tuple[bool, AssessmentQuestion | None, dict | None]:
     is_correct = answer.strip().lower() == question.correct_answer.strip().lower()
 
@@ -83,7 +103,9 @@ async def submit_answer(
         return is_correct, None, result
 
     next_skill_area = SKILL_AREAS[total_answered % len(SKILL_AREAS)]
-    next_question = await _generate_next_question(db, session, skill_area=next_skill_area, order_index=total_answered, user_id=user_id)
+    next_question = await _generate_next_question(
+        db, session, skill_area=next_skill_area, order_index=total_answered, user_id=user_id, target_language_code=target_language_code
+    )
     await db.commit()
     return is_correct, next_question, None
 

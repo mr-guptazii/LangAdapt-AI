@@ -37,6 +37,13 @@ class OnboardingRequest(BaseModel):
 
 
 # ---- assessment ----
+class StartAssessmentRequest(BaseModel):
+    # Optional because the placement assessment runs before a LearnerProfile
+    # exists (see app/core/deps.py's get_learner_profile_optional) — the
+    # onboarding page sends the language picked in its own step 1.
+    target_language_code: str | None = None
+
+
 class StartAssessmentResponse(BaseModel):
     assessment_session_id: UUID
     question: dict
@@ -45,6 +52,7 @@ class StartAssessmentResponse(BaseModel):
 class SubmitAssessmentAnswerRequest(BaseModel):
     question_id: UUID
     answer: str
+    target_language_code: str | None = None
 
 
 class AssessmentProgressResponse(BaseModel):

@@ -6,7 +6,7 @@ from app.core.deps import get_current_user
 from app.database.session import get_db
 from app.models.assessment import AssessmentQuestion, AssessmentSession
 from app.models.user import User
-from app.schemas.api import AssessmentProgressResponse, StartAssessmentResponse, SubmitAssessmentAnswerRequest
+from app.schemas.api import AssessmentProgressResponse, StartAssessmentRequest, StartAssessmentResponse, SubmitAssessmentAnswerRequest
 from app.services import assessment_service
 
 router = APIRouter(prefix="/assessment", tags=["assessment"])
@@ -17,8 +17,8 @@ def _question_dict(q: AssessmentQuestion) -> dict:
 
 
 @router.post("/start", response_model=StartAssessmentResponse)
-async def start(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    session, question = await assessment_service.start_assessment(db, user_id=user.id)
+async def start(payload: StartAssessmentRequest = StartAssessmentRequest(), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    session, question = await assessment_service.start_assessment(db, user_id=user.id, target_language_code=payload.target_language_code)
     return StartAssessmentResponse(assessment_session_id=session.id, question=_question_dict(question))
 
 
@@ -35,7 +35,7 @@ async def answer(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.")
 
     _is_correct, next_question, result = await assessment_service.submit_answer(
-        db, session=session, question=question, answer=payload.answer, user_id=user.id
+        db, session=session, question=question, answer=payload.answer, user_id=user.id, target_language_code=payload.target_language_code
     )
 
     if result is not None:

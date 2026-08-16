@@ -54,7 +54,7 @@ export default function OnboardingPage() {
     setStep(3); // shows the "Preparing your first question…" placeholder immediately
     setAssessmentLoading(true);
     try {
-      const res = await api.post<{ assessment_session_id: string; question: AssessmentQuestion }>("/api/v1/assessment/start");
+      const res = await api.post<{ assessment_session_id: string; question: AssessmentQuestion }>("/api/v1/assessment/start", { target_language_code: target });
       setAssessmentSessionId(res.assessment_session_id);
       setQuestion(res.question);
     } finally {
@@ -68,7 +68,7 @@ export default function OnboardingPage() {
     try {
       const res = await api.post<{ completed: boolean; next_question: AssessmentQuestion | null; result: { cefr_level: string; strengths: string[]; weaknesses: string[] } | null }>(
         `/api/v1/assessment/${assessmentSessionId}/answer`,
-        { question_id: question.id, answer }
+        { question_id: question.id, answer, target_language_code: target }
       );
       setAnswer("");
       if (res.completed && res.result) {
