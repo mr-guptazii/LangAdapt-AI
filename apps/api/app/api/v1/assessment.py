@@ -46,7 +46,9 @@ async def answer(
         if profile:
             profile.cefr_level = result["cefr_level"]
             profile.current_difficulty = result["cefr_level"]
-            profile.proficiency_confidence = 0.7
+            # Real, per-learner value from _finalize_assessment's answer-stability
+            # computation — previously hardcoded to a flat 0.7 for every learner.
+            profile.proficiency_confidence = result["confidence_interval"]
             await db.commit()
         return AssessmentProgressResponse(completed=True, result=result)
 

@@ -30,7 +30,13 @@ def get_llm_provider() -> LLMProvider:
 
 @lru_cache
 def get_embedding_provider() -> EmbeddingProvider:
-    from app.ai.providers.mock_provider import MockEmbeddingProvider
-    # A real embedding provider (e.g. Voyage/OpenAI) can be plugged in here behind
-    # the same EmbeddingProvider interface; mock keeps local dev dependency-free.
-    return MockEmbeddingProvider(dim=settings.EMBEDDING_DIM)
+    if settings.EMBEDDING_PROVIDER == "mock":
+        from app.ai.providers.mock_provider import MockEmbeddingProvider
+        return MockEmbeddingProvider(dim=settings.EMBEDDING_DIM)
+
+    # Default: a real (not random) lexical embedding — see lexical_provider.py's
+    # docstring for why this replaced an unconditional mock return that ran even
+    # in production. A future real neural/API-backed provider can be added here
+    # behind the same EmbeddingProvider interface without touching call sites.
+    from app.ai.providers.lexical_provider import HashingLexicalEmbeddingProvider
+    return HashingLexicalEmbeddingProvider(dim=settings.EMBEDDING_DIM)

@@ -61,6 +61,16 @@ async def end_session(session_id: UUID, user: User = Depends(get_current_user), 
             profile.streak_days = 1
         profile.last_active_at = now.isoformat()
 
+        # engagement_score previously had no writer anywhere in the codebase —
+        # it stayed at its column default (0.5) forever while adaptation_agent
+        # read it as though it were a live signal. Real, bounded formula from
+        # the same session data just updated above: a baseline for showing up,
+        # plus streak consistency, plus study volume, each capped so no single
+        # factor dominates.
+        streak_component = min(0.4, profile.streak_days * 0.04)
+        volume_component = min(0.3, profile.total_study_minutes / 500)
+        profile.engagement_score = round(min(1.0, 0.3 + streak_component + volume_component), 2)
+
     event_type = event_service.CONVERSATION_COMPLETED if session.mode == "conversation" else event_service.LESSON_COMPLETED
     event_service.emit(db, event_type=event_type, user_id=user.id, session_id=session.id, payload={"mode": session.mode, "duration_seconds": session.duration_seconds})
 

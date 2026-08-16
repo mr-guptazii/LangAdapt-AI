@@ -200,6 +200,19 @@ def _build_mock_instance(model: type[BaseModel], user_text: str, full_text: str 
             values[name] = "past_tense_practice" if detected else "general_conversation"
         elif name in ("decision",):
             values[name] = "maintain"
+        elif name == "strategy":
+            # Rule-based, not random: mirrors correction_needed's real signal
+            # instead of falling through to a generic "mock_strategy" literal
+            # that could never match practice_or_response_agent's gate
+            # (nodes/output.py checks strategy in {guided_practice,
+            # multiple_choice, repetition}), silently disabling practice
+            # recommendations for every conversation run under the mock provider.
+            # teaching_strategy_agent's prompt doesn't repeat the raw user
+            # sentence (so `detected` from last_user is usually empty here) —
+            # it embeds a "current_turn_errors" list in the learner summary
+            # instead, so check for that too.
+            has_current_errors = "current_turn_errors" in full_text and "current_turn_errors': []" not in full_text
+            values[name] = "guided_practice" if (detected or has_current_errors) else "conversational"
         elif name == "reason_code":
             values[name] = "insufficient_data_mock"
         elif name == "confidence":

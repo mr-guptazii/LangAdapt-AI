@@ -13,6 +13,13 @@ async def load_learner_context(state: TutorState, db: AsyncSession) -> dict:
     profile = await learner_tools.get_learner_profile(db, profile_id)
     prefs = await learner_tools.get_learning_preferences(db, profile_id)
     recent_errors = await learner_tools.get_recent_errors(db, profile_id, limit=5)
+    account = await learner_tools.get_profile_settings(db, UUID(state["user_id"]))
+
+    # personalization_enabled is a real privacy opt-out (section 72): when off,
+    # traits fall back to defaults instead of being loaded into agent state at
+    # all, so a disabled learner's actual personality/interests never reach an
+    # LLM prompt even indirectly.
+    personalize = account.personalization_enabled if account else True
 
     profile_dict = {
         "cefr_level": profile.cefr_level,
@@ -24,6 +31,8 @@ async def load_learner_context(state: TutorState, db: AsyncSession) -> dict:
         "confidence_score": profile.confidence_score,
         "engagement_score": profile.engagement_score,
         "current_difficulty": profile.current_difficulty,
+        "ai_personality": (account.ai_personality if (account and personalize) else "encouraging"),
+        "interests": (account.interests if (account and personalize) else []),
     } if profile else {}
 
     prefs_dict = {

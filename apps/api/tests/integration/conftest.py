@@ -76,8 +76,26 @@ async def client(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def seeded_skill(db_session: AsyncSession):
     """Minimal reference data most flows need: one 'en' language and the
-    past_tense skill (the flagship demo skill exercised throughout)."""
+    past_tense skill (the flagship demo skill exercised throughout).
+
+    Looks up an existing row before inserting: TEST_DB_URL falls back to the
+    real local dev DATABASE_URL when no dedicated test database is configured
+    (see this file's module docstring), so if scripts/seed.py or manual local
+    use has already committed an "en"/"past_tense" Skill row outside any test
+    transaction, a blind unconditional insert here would leave two rows
+    visible within this test's own transaction — every endpoint that queries
+    Skill by (language_code, code) with .scalar_one_or_none() then raises
+    MultipleResultsFound, which is what was actually happening (confirmed via
+    a direct query against the dev DB: zero committed duplicates, but the
+    fixture was adding a second one every run)."""
+    from sqlalchemy import select
+
     from app.models.language import Skill
+
+    existing = await db_session.execute(select(Skill).where(Skill.language_code == "en", Skill.code == "past_tense"))
+    skill = existing.scalars().first()
+    if skill is not None:
+        return skill
 
     skill = Skill(
         language_code="en", code="past_tense", name="Past Tense", category="grammar",

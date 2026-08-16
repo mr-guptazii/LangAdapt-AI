@@ -87,6 +87,7 @@ class SendMessageResponse(BaseModel):
     difficulty_decision: str | None = None
     recommended_activity: dict | None = None
     agents_invoked: list[str]
+    is_mock: bool = False
 
 
 # ---- practice ----

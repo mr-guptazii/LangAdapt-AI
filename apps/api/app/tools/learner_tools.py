@@ -13,10 +13,18 @@ from app.models.errors import LearnerError
 from app.models.language import Skill
 from app.models.learner import LearnerProfile, LearningPreference
 from app.models.mastery import SkillMastery
+from app.models.user import Profile
 
 
 async def get_learner_profile(db: AsyncSession, learner_profile_id: UUID) -> LearnerProfile | None:
     return await db.get(LearnerProfile, learner_profile_id)
+
+
+async def get_profile_settings(db: AsyncSession, user_id: UUID) -> Profile | None:
+    """The account-level Profile (personality, interests, privacy toggles) —
+    distinct from LearnerProfile (proficiency/ability). Agent nodes need both."""
+    result = await db.execute(select(Profile).where(Profile.user_id == user_id))
+    return result.scalar_one_or_none()
 
 
 async def get_learning_preferences(db: AsyncSession, learner_profile_id: UUID) -> LearningPreference | None:

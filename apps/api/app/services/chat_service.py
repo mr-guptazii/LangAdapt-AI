@@ -74,6 +74,12 @@ async def send_message(db: AsyncSession, *, user_id: UUID, learner_profile: Lear
         for e in result.get("detected_errors", [])
     ]
 
+    # Never silently present a mock-generated reply as real (section 98) — this
+    # was previously the one surface with zero indication: voice endpoints
+    # already set is_mock, chat did not. usage_log entries carry the real
+    # provider name from whichever LLMProvider actually ran this turn.
+    is_mock = any(entry.get("provider") == "mock" for entry in result.get("usage_log", []))
+
     return SendMessageResponse(
         session_id=session.id,
         response=result.get("response", ""),
@@ -83,4 +89,5 @@ async def send_message(db: AsyncSession, *, user_id: UUID, learner_profile: Lear
         difficulty_decision=result.get("difficulty_decision", {}).get("decision"),
         recommended_activity=result.get("recommended_activity"),
         agents_invoked=result.get("agents_invoked", []),
+        is_mock=is_mock,
     )

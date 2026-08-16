@@ -78,10 +78,16 @@ async def adaptation_agent(state: TutorState) -> dict:
 
 async def teaching_strategy_agent(state: TutorState) -> dict:
     provider = get_llm_provider()
+    # "recent_errors" is history loaded BEFORE this turn (context.py runs first
+    # in the graph); it never includes what error_analysis_agent just detected
+    # THIS turn, which is exactly the signal that routed the graph into this
+    # significant-learning-event branch in the first place — without it the
+    # strategy decision was blind to the very error that triggered it.
     learner_summary = {
         **state.get("learner_profile", {}),
         "preferences": state.get("learning_preferences", {}),
         "recent_errors": state.get("recent_error_categories", []),
+        "current_turn_errors": [e["category"] for e in state.get("detected_errors", [])],
     }
     difficulty_decision = state.get("difficulty_decision", {}).get("decision", "maintain")
     messages = build_teaching_strategy_prompt(learner_summary=learner_summary, difficulty_decision=difficulty_decision)

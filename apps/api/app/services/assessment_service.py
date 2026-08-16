@@ -139,11 +139,28 @@ async def submit_answer(
     return is_correct, next_question, None
 
 
+def _confidence_from_answer_stability(answers: list[AssessmentAnswer]) -> float:
+    """How consistent the learner's correct/incorrect pattern was, in the order
+    answered. A learner who flips between right and wrong on every question gives
+    a noisier signal for "where is their true level" than one whose results settle
+    into a consistent band — so fewer flips means we should trust the final
+    ability estimate more. This was previously `0.5 - abs(0.5 - len(answers)/16)`,
+    which is degenerate: QUESTIONS_PER_SESSION is a fixed 8, so that formula always
+    evaluated to exactly 0.5 for every learner regardless of how they actually
+    answered — a constant disguised as a computation."""
+    ordered = sorted(answers, key=lambda a: a.answered_at)
+    if len(ordered) < 2:
+        return 0.5
+    flips = sum(1 for i in range(1, len(ordered)) if ordered[i].is_correct != ordered[i - 1].is_correct)
+    stability = 1 - (flips / (len(ordered) - 1))
+    return round(0.4 + 0.5 * stability, 2)  # floor 0.4 (never fully discount a real result), ceiling 0.9
+
+
 async def _finalize_assessment(db: AsyncSession, session: AssessmentSession, answers: list[AssessmentAnswer]) -> dict:
     session.status = "completed"
     session.completed_at = datetime.now(timezone.utc)
     session.result_cefr_level = _difficulty_for_ability(session.current_ability_estimate)
-    session.result_confidence_interval = round(0.5 - abs(0.5 - len(answers) / 16), 2)
+    session.result_confidence_interval = _confidence_from_answer_stability(answers)
 
     # Per-skill-area breakdown from the answered questions.
     breakdown: dict[str, list[bool]] = {}

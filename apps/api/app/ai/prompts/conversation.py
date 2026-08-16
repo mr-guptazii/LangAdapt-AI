@@ -17,6 +17,12 @@ CORRECTION_STYLE_GUIDANCE = {
     "minimal": "Only correct mistakes that would confuse a native speaker.",
 }
 
+EXPLANATION_LENGTH_GUIDANCE = {
+    "short": "This learner prefers brevity: keep replies to 1-2 short sentences and any explanation to a single clause — no elaboration unless asked.",
+    "medium": "Keep replies to 2-4 sentences; explain corrections in one sentence, enough context without over-explaining.",
+    "long": "This learner wants depth: it's fine to use 4-6 sentences and give the full grammatical reasoning behind any correction, not just the fix.",
+}
+
 
 def build_conversation_prompt(
     *,
@@ -31,9 +37,11 @@ def build_conversation_prompt(
     scenario: str | None,
     conversation_history: list[dict],
     user_message: str,
+    explanation_length: str = "medium",
 ) -> list[dict]:
     style = PERSONALITY_STYLE.get(personality, PERSONALITY_STYLE["encouraging"])
     correction_guidance = CORRECTION_STYLE_GUIDANCE.get(correction_style, CORRECTION_STYLE_GUIDANCE["balanced"])
+    length_guidance = EXPLANATION_LENGTH_GUIDANCE.get(explanation_length, EXPLANATION_LENGTH_GUIDANCE["medium"])
 
     system = f"""{SAFETY_PREAMBLE}
 
@@ -45,8 +53,8 @@ Rules:
 - Speak primarily in {target_language}, at a vocabulary and grammar complexity appropriate for
   CEFR {cefr_level}. Do not use structures far above their level.
 - {correction_guidance}
+- {length_guidance}
 - Ask a natural follow-up question to keep the learner producing language.
-- Keep replies concise (2-4 sentences) unless the learner asks for more detail.
 - Never shame the learner. Never use more than one emoji.
 {f"- Current lesson objective (do not announce this explicitly, just steer toward it): {objective}" if objective else ""}
 {f"- Scenario role-play context: {scenario}" if scenario else ""}

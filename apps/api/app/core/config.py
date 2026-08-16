@@ -71,8 +71,15 @@ class Settings(BaseSettings):
     PRONUNCIATION_PROVIDER: Literal["mock"] = "mock"
     STORE_RAW_AUDIO: bool = False
 
-    # Embeddings (semantic memory)
-    EMBEDDING_PROVIDER: Literal["anthropic", "mock"] = "mock"
+    # Embeddings (semantic memory). "hashing" is a real (not random) lightweight
+    # lexical embedding — no API key needed, see ai/providers/lexical_provider.py
+    # — and is the default so semantic memory retrieval is content-aware out of
+    # the box. "mock" (pure random-per-text noise) is kept only for tests that
+    # want speed/determinism without caring about actual similarity. No provider
+    # named "anthropic" exists: Anthropic has no public embeddings API, and
+    # nothing in this codebase ever implemented one despite the old default
+    # suggesting otherwise.
+    EMBEDDING_PROVIDER: Literal["hashing", "mock"] = "hashing"
     EMBEDDING_DIM: int = 384
 
     # Observability

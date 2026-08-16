@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.state import TutorState
+from app.learning.curriculum import next_cefr_level, previous_cefr_level
 from app.memory.service import store_memory
 from app.models.agent import AgentDecision
 from app.models.analytics import AIUsageLog
@@ -78,15 +79,27 @@ async def persist_learning_event(state: TutorState, db: AsyncSession) -> dict:
             estimated_cost_usd=estimate_cost_usd(entry.get("model", ""), entry.get("input_tokens", 0), entry.get("output_tokens", 0)),
         ))
 
-    # Log the adaptation decision for the "Why this lesson?" UI (section 32/121).
+    # Log the adaptation decision for the "Why this lesson?" UI (section 32/121)
+    # AND actually apply it — previously this decision was computed, logged, and
+    # returned to the client, but never fed back into LearnerProfile.current_difficulty,
+    # so it could never change what CEFR level future turns were pitched at. A real
+    # decision that isn't applied isn't adaptation, just a label.
     if state.get("difficulty_decision"):
         d = state["difficulty_decision"]
+        decision = d.get("decision", "maintain")
         db.add(AgentDecision(
-            user_id=user_id, session_id=session_id, agent_name="adaptation", decision=d.get("decision", "maintain"),
+            user_id=user_id, session_id=session_id, agent_name="adaptation", decision=decision,
             reason_code=d.get("reason_code", "unspecified"), reason_summary=d.get("recommended_action", ""),
             confidence=d.get("confidence", 0.5), recommended_action=d.get("recommended_action"),
             inputs_snapshot=d.get("inputs_snapshot", {}),
         ))
+        if decision in ("increase_difficulty", "decrease_difficulty"):
+            profile = await learner_tools.get_learner_profile(db, profile_id)
+            if profile:
+                profile.current_difficulty = (
+                    next_cefr_level(profile.current_difficulty) if decision == "increase_difficulty"
+                    else previous_cefr_level(profile.current_difficulty)
+                )
     if state.get("teaching_strategy"):
         t = state["teaching_strategy"]
         db.add(AgentDecision(

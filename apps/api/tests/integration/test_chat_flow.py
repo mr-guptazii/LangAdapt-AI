@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.models.errors import LearnerError
+from app.models.learner import LearnerProfile
 from app.models.mastery import SkillMastery
 from tests.integration.conftest import complete_onboarding, register_and_login
 
@@ -52,12 +53,19 @@ async def test_past_tense_error_is_detected_and_persisted(client: AsyncClient, s
     assert "learner_model_agent" in body["agents_invoked"]  # significant-event path taken
 
     # And it's really in the database, not just echoed back in the response.
-    error_row = (await db_session.execute(select(LearnerError).where(LearnerError.category == "past_tense"))).scalar_one_or_none()
+    # Scoped to THIS user's learner_profile_id — an unscoped query here was
+    # fragile against any dev database that also has a pre-existing learner
+    # with a past_tense error (e.g. the demo account from scripts/seed.py),
+    # which would make .scalar_one_or_none() raise MultipleResultsFound.
+    profile = (await db_session.execute(select(LearnerProfile).where(LearnerProfile.user_id == user["user_id"]))).scalar_one()
+    error_row = (await db_session.execute(
+        select(LearnerError).where(LearnerError.learner_profile_id == profile.id, LearnerError.category == "past_tense")
+    )).scalar_one_or_none()
     assert error_row is not None
     assert error_row.occurrence_count >= 1
 
     mastery_row = (await db_session.execute(
-        select(SkillMastery).where(SkillMastery.skill_id == seeded_skill.id)
+        select(SkillMastery).where(SkillMastery.learner_profile_id == profile.id, SkillMastery.skill_id == seeded_skill.id)
     )).scalar_one_or_none()
     assert mastery_row is not None
     assert mastery_row.attempts >= 1
