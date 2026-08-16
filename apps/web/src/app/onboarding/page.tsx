@@ -36,6 +36,7 @@ export default function OnboardingPage() {
   const [question, setQuestion] = useState<AssessmentQuestion | null>(null);
   const [answer, setAnswer] = useState("");
   const [assessmentResult, setAssessmentResult] = useState<{ cefr_level: string; strengths: string[]; weaknesses: string[] } | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
 
   const steps = ["Welcome", "Languages", "Goals", "Placement", "Preferences", "Done"];
 
@@ -44,24 +45,34 @@ export default function OnboardingPage() {
   }
 
   async function startAssessment() {
-    const res = await api.post<{ assessment_session_id: string; question: AssessmentQuestion }>("/api/v1/assessment/start");
-    setAssessmentSessionId(res.assessment_session_id);
-    setQuestion(res.question);
-    setStep(3);
+    setStep(3); // shows the "Preparing your first question…" placeholder immediately
+    setAssessmentLoading(true);
+    try {
+      const res = await api.post<{ assessment_session_id: string; question: AssessmentQuestion }>("/api/v1/assessment/start");
+      setAssessmentSessionId(res.assessment_session_id);
+      setQuestion(res.question);
+    } finally {
+      setAssessmentLoading(false);
+    }
   }
 
   async function submitAnswer() {
-    if (!assessmentSessionId || !question) return;
-    const res = await api.post<{ completed: boolean; next_question: AssessmentQuestion | null; result: { cefr_level: string; strengths: string[]; weaknesses: string[] } | null }>(
-      `/api/v1/assessment/${assessmentSessionId}/answer`,
-      { question_id: question.id, answer }
-    );
-    setAnswer("");
-    if (res.completed && res.result) {
-      setAssessmentResult(res.result);
-      setLevel(res.result.cefr_level);
-    } else if (res.next_question) {
-      setQuestion(res.next_question);
+    if (!assessmentSessionId || !question || assessmentLoading) return;
+    setAssessmentLoading(true);
+    try {
+      const res = await api.post<{ completed: boolean; next_question: AssessmentQuestion | null; result: { cefr_level: string; strengths: string[]; weaknesses: string[] } | null }>(
+        `/api/v1/assessment/${assessmentSessionId}/answer`,
+        { question_id: question.id, answer }
+      );
+      setAnswer("");
+      if (res.completed && res.result) {
+        setAssessmentResult(res.result);
+        setLevel(res.result.cefr_level);
+      } else if (res.next_question) {
+        setQuestion(res.next_question);
+      }
+    } finally {
+      setAssessmentLoading(false);
     }
   }
 
@@ -169,7 +180,9 @@ export default function OnboardingPage() {
                   className="focus-ring mt-4 w-full rounded-xl border border-white/10 bg-navy-800/60 p-3 text-sm text-cream"
                 />
               )}
-              <Button className="mt-6" disabled={!answer} onClick={submitAnswer}>Next question</Button>
+              <Button className="mt-6" disabled={!answer || assessmentLoading} onClick={submitAnswer}>
+                {assessmentLoading ? "Thinking…" : "Next question"}
+              </Button>
             </div>
           )}
 
