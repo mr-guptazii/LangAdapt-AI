@@ -8,15 +8,22 @@ _SKILL_GUIDANCE = {
     # or fall back to placeholder options ("A", "B", "C", "D") — both observed live
     # in production, across multiple skill areas.
     "vocabulary": (
-        "`prompt` MUST include the actual word, phrase, or idiom being tested, spelled "
-        "out in full inside the question text itself — e.g. \"What does the expression "
-        "'break the ice' mean?\", never \"What does the expression [mean]?\" with the "
-        "expression itself missing."
+        "`prompt` MUST test the meaning, synonym, or correct usage of one specific word, "
+        "phrase, or idiom, spelled out in full inside the question text itself — e.g. "
+        "\"What does the expression 'break the ice' mean?\", never \"What does the "
+        "expression [mean]?\" with the expression itself missing. Never ask a general-"
+        "knowledge or opinion question (e.g. \"What is the correct time to go to bed?\") "
+        "that isn't actually about a word's meaning or usage."
     ),
     "grammar": (
-        "`prompt` MUST include the actual example sentence being tested, spelled out in "
-        "full inside the question text itself — never refer to \"the sentence\" or \"the "
-        "example\" without the words of that sentence actually being present."
+        "`prompt` MUST test one specific, identifiable grammar point (e.g. verb tense, "
+        "subject-verb agreement, articles, prepositions, comparatives, word order), "
+        "framed as either a fill-in-the-blank sentence or a \"choose the correct "
+        "sentence\" question, with the actual example sentence spelled out in full inside "
+        "the question text itself — never refer to \"the sentence\" or \"the example\" "
+        "without those words actually being present. Never ask a general-knowledge or "
+        "opinion question (e.g. \"What is the correct time to go to bed?\") that has "
+        "nothing to do with grammar."
     ),
     "reading": (
         'The `prompt` field MUST be fully self-contained: write a short passage (3-6 '

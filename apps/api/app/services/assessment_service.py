@@ -21,6 +21,13 @@ from app.services import ai_usage_service, event_service
 SKILL_AREAS = ["vocabulary", "grammar", "reading", "listening", "writing", "speaking"]
 DIFFICULTY_STEP = 0.18  # ability move per answer, tapering as question count grows
 
+# These skill areas are always multiple_choice per build_assessment_question_prompt
+# (only "writing"/"speaking" are free_response) — used to detect when the FAST-tier
+# model (a small model, chosen for cost) ignores that instruction. Observed live: a
+# "grammar" question came back as an unrelated free-response prompt with no options
+# at all ("What is the correct time to go to bed every night?").
+_MULTIPLE_CHOICE_SKILLS = {"vocabulary", "grammar", "reading", "listening"}
+
 # Mirrors the LANGUAGES list in apps/web/src/app/onboarding/page.tsx. The LLM
 # prompt needs a human-readable language name, not an ISO code — without this,
 # question generation had no real signal for which language it was testing and
@@ -63,8 +70,18 @@ async def _generate_next_question(
     difficulty = _difficulty_for_ability(session.current_ability_estimate)
     messages = build_assessment_question_prompt(target_language=_language_name(target_language_code), skill_area=skill_area, difficulty=difficulty)
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=ModelTier.FAST, max_tokens=400)
-    ai_usage_service.log(db, user_id=user_id, session_id=None, node="assessment_question_generator", usage=usage, tier=ModelTier.FAST)
+    tier = ModelTier.FAST
+    result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
+
+    if skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) < 2):
+        # Retry once against the larger STRONG-tier model rather than accepting a
+        # structurally broken question (no options to render, or too few to be a
+        # real choice) — cheap insurance since this only fires on a real failure,
+        # not every call.
+        tier = ModelTier.STRONG
+        result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
+
+    ai_usage_service.log(db, user_id=user_id, session_id=None, node="assessment_question_generator", usage=usage, tier=tier)
 
     question = AssessmentQuestion(
         assessment_session_id=session.id, order_index=order_index, skill_area=skill_area, difficulty=difficulty,
