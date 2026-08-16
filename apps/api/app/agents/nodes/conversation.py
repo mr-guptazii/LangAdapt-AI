@@ -47,6 +47,7 @@ async def error_analysis_agent(state: TutorState) -> dict:
         target_language=profile.get("target_language", "the target language"),
         cefr_level=profile.get("cefr_level", "A2"),
         user_message=state["user_message"],
+        conversation_history=state.get("conversation_context", []),
     )
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
     result, usage = await provider.structured(llm_messages, ErrorAnalysisOutput, tier=ModelTier.FAST, max_tokens=500)
