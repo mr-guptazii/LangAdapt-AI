@@ -92,13 +92,16 @@ async def generate_practice_for_weakness(
         count=count,
     )
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    # STRONG tier (not FAST): live testing showed the FAST model producing
-    # structurally broken exercises (correct_answer unrelated to the prompt,
-    # missing from a multiple_choice's own options, etc.) even with an
-    # explicitly constrained prompt — this content is graded, unlike a
-    # conversational reply, so it needs the more reliable tier.
-    result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.STRONG, max_tokens=1200)
-    ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.STRONG)
+    # FAST tier, not STRONG: STRONG shares a single scarce Groq daily token
+    # budget with conversation_agent, which runs on every conversational turn
+    # and matters far more (observed live: STRONG hit its 100k-token daily
+    # cap this session, hard-failing every conversation turn with a 429 —
+    # doubling STRONG's consumers by moving generation here would make that
+    # worse, not better). FAST still produces structurally broken exercises
+    # sometimes even with the tightened prompt below, so _is_gradable is the
+    # real backstop for correctness here, not the model tier.
+    result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.FAST, max_tokens=1200)
+    ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.FAST)
 
     # Anti-repetition: skip near-duplicates already in this learner's recent question set.
     existing_fps = set((await db.execute(
