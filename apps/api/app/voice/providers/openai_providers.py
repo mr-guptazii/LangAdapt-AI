@@ -29,7 +29,7 @@ class OpenAIWhisperSTT(STTProvider):
         file_obj.name = "audio.webm"
 
         resp = await client.audio.transcriptions.create(
-            model="whisper-1",
+            model=settings.STT_MODEL,
             file=file_obj,
             language=language_code,
             response_format="verbose_json",
@@ -74,6 +74,6 @@ class OpenAITTS(TTSProvider):
         client = _client()
         # OpenAI TTS speed is clamped to [0.25, 4.0]; our own voice_speed slider is [0.5, 1.5].
         speed = max(0.25, min(4.0, voice_speed))
-        resp = await client.audio.speech.create(model="tts-1", voice="alloy", input=text, speed=speed)
+        resp = await client.audio.speech.create(model=settings.TTS_MODEL, voice="alloy", input=text, speed=speed)
         audio_bytes = resp.read() if hasattr(resp, "read") else resp.content
         return SynthesisResult(audio_bytes=audio_bytes, mime_type="audio/mpeg", provider=self.name)

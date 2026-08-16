@@ -59,9 +59,15 @@ class Settings(BaseSettings):
     OPENAI_MODEL_STRONG: str = "gpt-4o"
     OPENAI_MODEL_FAST: str = "gpt-4o-mini"
 
-    # Voice providers
+    # Voice providers. Model names are configurable (not hardcoded to OpenAI's
+    # "whisper-1"/"tts-1") because openai_whisper/openai_tts hit whatever
+    # OPENAI_BASE_URL points at (same OpenAI-Chat-Completions-style pattern as
+    # the LLM provider) — e.g. Groq's OpenAI-compatible endpoint serves
+    # "whisper-large-v3-turbo", not "whisper-1".
     STT_PROVIDER: Literal["mock", "openai_whisper"] = "mock"
+    STT_MODEL: str = "whisper-1"
     TTS_PROVIDER: Literal["mock", "openai_tts"] = "mock"
+    TTS_MODEL: str = "tts-1"
     PRONUNCIATION_PROVIDER: Literal["mock"] = "mock"
     STORE_RAW_AUDIO: bool = False
 
