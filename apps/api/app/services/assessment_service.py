@@ -73,11 +73,12 @@ async def _generate_next_question(
     tier = ModelTier.FAST
     result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
 
-    if skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) < 2):
+    if skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) != 4):
         # Retry once against the larger STRONG-tier model rather than accepting a
-        # structurally broken question (no options to render, or too few to be a
-        # real choice) — cheap insurance since this only fires on a real failure,
-        # not every call.
+        # structurally broken question — no options to render, or a wrong option
+        # count (observed live: 7 options for one "reading" question, several of
+        # them independently true statements, making the correct answer ambiguous).
+        # Cheap insurance since this only fires on a real failure, not every call.
         tier = ModelTier.STRONG
         result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
 

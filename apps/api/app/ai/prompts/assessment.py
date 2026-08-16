@@ -28,15 +28,25 @@ _SKILL_GUIDANCE = {
     "reading": (
         'The `prompt` field MUST be fully self-contained: write a short passage (3-6 '
         "sentences, appropriate for this CEFR level) directly inside `prompt`, followed "
-        "by a comprehension question about it. Never write a meta-reference like 'read "
-        "the following text' or 'this passage' without the passage's actual words being "
-        "part of `prompt` — there is no separate passage field."
+        "by an EXPLICIT question sentence about it (e.g. \"Why does the writer prefer "
+        "the bus?\", \"What problem does the writer mention?\") — never just the passage "
+        "with no question at all. Never write a meta-reference like 'read the following "
+        "text' or 'this passage' without the passage's actual words being part of "
+        "`prompt` — there is no separate passage field. Exactly ONE option may be "
+        "supported by the passage; write the other three so they are clearly "
+        "contradicted or unsupported by it — never reuse two different true sentences "
+        "from the passage as two different options, since a learner could reasonably "
+        "pick either."
     ),
     "listening": (
         "There is no audio playback in this assessment, so the `prompt` field MUST open "
         "with a short spoken-style passage written out as text (3-5 sentences, framed as "
-        "something someone said or announced), followed by a comprehension question about "
-        "it. Never reference audio the learner can't actually hear."
+        "something someone said or announced), followed by an EXPLICIT question sentence "
+        "about it — never just the passage with no question at all. Never reference "
+        "audio the learner can't actually hear. Exactly ONE option may be supported by "
+        "the passage; write the other three so they are clearly contradicted or "
+        "unsupported by it — never reuse two different true statements from the passage "
+        "as two different options, since a learner could reasonably pick either."
     ),
     "writing": (
         "Use question_type \"free_response\". `prompt` should ask the learner to write a "
@@ -57,9 +67,9 @@ def build_assessment_question_prompt(*, target_language: str, skill_area: str, d
     system = f"""{SAFETY_PREAMBLE}
 
 You are the Adaptive Assessment component for {target_language}. Generate ONE placement-test
-question for skill area "{skill_area}" at CEFR difficulty {difficulty}. Prefer multiple_choice
-with exactly 4 options and one unambiguous correct_answer, unless skill_area is "writing" or
-"speaking", in which case use a free_response prompt instead.
+question for skill area "{skill_area}" at CEFR difficulty {difficulty}. Use question_type
+"multiple_choice" with EXACTLY 4 options — never 3, never 5 or more — and exactly ONE of them
+correct, unless skill_area is "writing" or "speaking", in which case use "free_response" instead.
 
 The learner sees ONLY the `prompt` field (and `options`, for multiple_choice) — there is no
 separate passage/word/sentence field and nothing else renders on screen. `prompt` must be fully
