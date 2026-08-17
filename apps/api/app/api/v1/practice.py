@@ -45,9 +45,16 @@ async def next_practice(
             .order_by(LearnerError.weakness_score.desc()).limit(5)
         )).scalars().all()
         for err in top_errors:
+            # .scalars().first() not .scalar_one_or_none(): Skill.code has no
+            # DB-level uniqueness constraint (see app/models/language.py), so a
+            # re-run of scripts.seed can leave duplicate rows for the same
+            # (language_code, code) — observed live: this exact query raised
+            # MultipleResultsFound and 500'd every /practice/next call for one
+            # real account, even though every other endpoint using the same
+            # learner_profile worked fine (they never query Skill this way).
             skill = (await db.execute(
                 select(Skill).where(Skill.language_code == learner_profile.target_language_code, Skill.code == err.category)
-            )).scalar_one_or_none()
+            )).scalars().first()
             if skill:
                 break
         if skill is None:
@@ -56,7 +63,7 @@ async def next_practice(
     if skill is None:
         skill = (await db.execute(
             select(Skill).where(Skill.language_code == learner_profile.target_language_code, Skill.code == skill_code)
-        )).scalar_one_or_none()
+        )).scalars().first()
         if skill is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown skill '{skill_code}' for this language.")
 

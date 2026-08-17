@@ -43,19 +43,22 @@ async def get_recent_errors(db: AsyncSession, learner_profile_id: UUID, limit: i
 
 
 async def get_skill_mastery(db: AsyncSession, learner_profile_id: UUID, skill_code: str) -> SkillMastery | None:
+    # .scalars().first() not .scalar_one_or_none() — see the note in
+    # get_skill_by_code below; a duplicate Skill row would otherwise raise
+    # MultipleResultsFound here too via the join.
     result = await db.execute(
         select(SkillMastery)
         .join(Skill, Skill.id == SkillMastery.skill_id)
         .where(SkillMastery.learner_profile_id == learner_profile_id, Skill.code == skill_code)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def get_or_create_skill_mastery(db: AsyncSession, learner_profile_id: UUID, skill_id: UUID) -> SkillMastery:
     result = await db.execute(
         select(SkillMastery).where(SkillMastery.learner_profile_id == learner_profile_id, SkillMastery.skill_id == skill_id)
     )
-    mastery = result.scalar_one_or_none()
+    mastery = result.scalars().first()
     if mastery is None:
         mastery = SkillMastery(learner_profile_id=learner_profile_id, skill_id=skill_id, mastery=0.0)
         db.add(mastery)
@@ -64,8 +67,13 @@ async def get_or_create_skill_mastery(db: AsyncSession, learner_profile_id: UUID
 
 
 async def get_skill_by_code(db: AsyncSession, language_code: str, skill_code: str) -> Skill | None:
+    # .scalars().first() not .scalar_one_or_none(): Skill.code has no DB-level
+    # uniqueness constraint (see app/models/language.py) — a duplicate row from
+    # a re-run of scripts.seed would otherwise raise MultipleResultsFound and
+    # crash every caller (learner_model_agent runs this per detected error, on
+    # the significant-learning-event path of every conversation turn).
     result = await db.execute(select(Skill).where(Skill.language_code == language_code, Skill.code == skill_code))
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def get_due_reviews(db: AsyncSession, learner_profile_id: UUID, limit: int = 10) -> list[SkillMastery]:

@@ -101,8 +101,10 @@ async def generate_recommendations(db: AsyncSession, *, learner_profile: Learner
         candidate = candidates[i] if i < len(candidates) else candidates[0]
         skill_id = None
         if candidate.get("target_skill_code"):
+            # .scalars().first() not .scalar_one_or_none() — see the same note
+            # in app/tools/learner_tools.get_skill_by_code.
             skill_row = await db.execute(select(Skill).where(Skill.code == candidate["target_skill_code"]))
-            skill_obj = skill_row.scalar_one_or_none()
+            skill_obj = skill_row.scalars().first()
             skill_id = skill_obj.id if skill_obj else None
 
         rec = LearningRecommendation(

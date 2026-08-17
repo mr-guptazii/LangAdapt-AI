@@ -27,8 +27,10 @@ DEMO_PASSWORD = "demopass123"  # noqa: S105 — a known, published demo credenti
 
 
 async def _get_skill(db: AsyncSession, code: str) -> Skill | None:
+    # .scalars().first() not .scalar_one_or_none() — see the same note in
+    # app/tools/learner_tools.get_skill_by_code.
     result = await db.execute(select(Skill).where(Skill.language_code == "en", Skill.code == code))
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def _create_learner(
