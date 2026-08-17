@@ -10,12 +10,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.prompts.recommendation import build_recommendation_prompt
 from app.ai.providers.base import LLMMessage, ModelTier
 from app.ai.providers.factory import get_llm_provider
+from app.core.logging import get_logger
 from app.models.language import Skill
 from app.models.learner import LearnerProfile, LearningGoal
 from app.models.recommendation import LearningRecommendation
-from app.schemas.agent_io import RecommendationOutput
+from app.schemas.agent_io import RecommendationItem, RecommendationOutput
 from app.services import ai_usage_service, event_service
 from app.tools import learner_tools
+
+logger = get_logger(__name__)
+
+_REASON_SUMMARIES = {
+    "recent_mistake": "You've made this mistake recently — a quick drill will help it stick.",
+    "due_review": "This is due for review to keep it fresh in your memory.",
+    "goal_alignment": "This matches what you're working towards.",
+}
 
 
 async def _score_candidates(db: AsyncSession, learner_profile: LearnerProfile) -> list[dict]:
@@ -66,12 +75,29 @@ async def generate_recommendations(db: AsyncSession, *, learner_profile: Learner
     }
     messages = build_recommendation_prompt(learner_summary=learner_summary, candidates=candidates[:top_n])
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, RecommendationOutput, tier=ModelTier.FAST, max_tokens=600)
-    ai_usage_service.log(db, user_id=learner_profile.user_id, session_id=None, node="recommendation_engine", usage=usage, tier=ModelTier.FAST)
+    # Ranking (candidates, above) is fully deterministic — the LLM only phrases
+    # titles/reasons warmly, so a failed call here should never crash the
+    # dashboard (observed live: the same provider flake pattern already fixed
+    # in the tutor's agent nodes). Falls back to the deterministic candidates'
+    # own plain title/reason instead of the LLM's warmer phrasing.
+    try:
+        result, usage = await provider.structured(llm_messages, RecommendationOutput, tier=ModelTier.FAST, max_tokens=600)
+        ai_usage_service.log(db, user_id=learner_profile.user_id, session_id=None, node="recommendation_engine", usage=usage, tier=ModelTier.FAST)
+        items = result.items
+    except Exception:
+        logger.warning("recommendation_engine_failed_degrading_gracefully", exc_info=True)
+        items = [
+            RecommendationItem(
+                activity_type=c["activity_type"], title=c["title"],
+                reason_summary=_REASON_SUMMARIES.get(c["reason_code"], "Recommended for you."),
+                estimated_minutes=c["estimated_minutes"],
+            )
+            for c in candidates[:top_n]
+        ]
 
     now = datetime.now(timezone.utc)
     created = []
-    for i, item in enumerate(result.items[:top_n]):
+    for i, item in enumerate(items[:top_n]):
         candidate = candidates[i] if i < len(candidates) else candidates[0]
         skill_id = None
         if candidate.get("target_skill_code"):

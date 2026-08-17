@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.prompts.practice_generator import build_practice_generation_prompt
 from app.ai.providers.base import LLMMessage, ModelTier
 from app.ai.providers.factory import get_llm_provider
+from app.core.logging import get_logger
 from app.learning.mastery import update_mastery
 from app.learning.spaced_repetition import ScheduleState, quality_from_correctness, update_schedule
 from app.models.errors import LearnerError
@@ -24,6 +25,8 @@ from app.models.practice import PracticeAttempt, PracticeQuestion
 from app.schemas.agent_io import PracticeGenerationOutput
 from app.services import ai_usage_service, event_service
 from app.tools import learner_tools
+
+logger = get_logger(__name__)
 
 
 def _fingerprint(prompt: str) -> str:
@@ -110,8 +113,18 @@ async def generate_practice_for_weakness(
     # worse, not better). FAST still produces structurally broken exercises
     # sometimes even with the tightened prompt below, so _is_gradable is the
     # real backstop for correctness here, not the model tier.
-    result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.FAST, max_tokens=1200)
-    ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.FAST)
+    # Same graceful-degradation guard as the tutor's agent nodes (see
+    # app/agents/nodes/conversation.py, modeling.py) — this call previously had
+    # none, and a provider flake here 500'd the whole /practice/next request
+    # instead of just yielding fewer questions. The endpoint and frontend both
+    # already handle an empty/short list from anti-repetition filtering below,
+    # so an empty list here degrades the same way, not a special case.
+    try:
+        result, usage = await provider.structured(llm_messages, PracticeGenerationOutput, tier=ModelTier.FAST, max_tokens=1200)
+        ai_usage_service.log(db, user_id=user_id, session_id=None, node="practice_generator", usage=usage, tier=ModelTier.FAST)
+    except Exception:
+        logger.warning("practice_generator_failed_degrading_gracefully", exc_info=True)
+        return []
 
     # Anti-repetition: skip near-duplicates already in this learner's recent question set.
     existing_fps = set((await db.execute(

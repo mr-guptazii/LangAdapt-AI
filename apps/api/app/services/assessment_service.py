@@ -13,10 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.prompts.assessment import build_assessment_question_prompt
 from app.ai.providers.base import LLMMessage, ModelTier
 from app.ai.providers.factory import get_llm_provider
+from app.core.logging import get_logger
 from app.learning.curriculum import CEFR_ORDER
 from app.models.assessment import AssessmentAnswer, AssessmentQuestion, AssessmentSession
 from app.schemas.agent_io import GeneratedExercise
 from app.services import ai_usage_service, event_service
+
+logger = get_logger(__name__)
 
 SKILL_AREAS = ["vocabulary", "grammar", "reading", "listening", "writing", "speaking"]
 DIFFICULTY_STEP = 0.18  # ability move per answer, tapering as question count grows
@@ -34,6 +37,43 @@ _MULTIPLE_CHOICE_SKILLS = {"vocabulary", "grammar", "reading", "listening"}
 # "?" at all. Observed live even after strengthening the prompt: the model
 # sometimes writes the passage and stops, never asking anything about it.
 _MUST_CONTAIN_QUESTION_MARK = {"reading", "listening"}
+
+# Last-resort fallback if BOTH the FAST and STRONG attempts below fail
+# (observed live: the same provider-flake pattern already fixed elsewhere in
+# this codebase) — assessment is a multi-question session a learner is mid-way
+# through, so losing a question outright breaks the whole onboarding flow,
+# unlike a single conversational turn. Always English-language content
+# regardless of target language (same limitation as mock_provider.py's
+# _MOCK_ASSESSMENT_BANK) — an imperfect question the assessment can still
+# score beats a crashed onboarding flow.
+_FALLBACK_QUESTIONS: dict[str, dict] = {
+    "vocabulary": {
+        "prompt": "Which word means 'to obtain something'?",
+        "options": ["achieve", "negotiate", "reliable", "deadline"], "correct_answer": "achieve",
+    },
+    "grammar": {
+        "prompt": "Choose the grammatically correct sentence.",
+        "options": ["She go to work every day.", "She goes to work every day.",
+                    "She going to work every day.", "She gone to work every day."],
+        "correct_answer": "She goes to work every day.",
+    },
+    "reading": {
+        "prompt": "\"After the meeting, Sam felt relieved.\" How did Sam feel?",
+        "options": ["Anxious", "Relieved", "Confused", "Excited"], "correct_answer": "Relieved",
+    },
+    "listening": {
+        "prompt": "The speaker says: \"I'll meet you at the station at noon.\" What time will they meet?",
+        "options": ["9 AM", "Noon", "6 PM", "Midnight"], "correct_answer": "Noon",
+    },
+    "writing": {
+        "prompt": "Write 2-3 sentences describing your favorite hobby.", "options": None,
+        "correct_answer": "A grammatically coherent 2-3 sentence response describing a hobby.",
+    },
+    "speaking": {
+        "prompt": "Describe your typical morning routine in a few sentences.", "options": None,
+        "correct_answer": "A fluent description of a morning routine.",
+    },
+}
 
 # Mirrors the LANGUAGES list in apps/web/src/app/onboarding/page.tsx. The LLM
 # prompt needs a human-readable language name, not an ISO code — without this,
@@ -78,26 +118,34 @@ async def _generate_next_question(
     messages = build_assessment_question_prompt(target_language=_language_name(target_language_code), skill_area=skill_area, difficulty=difficulty)
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
     tier = ModelTier.FAST
-    result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
-
-    bad_options = skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) != 4)
-    bad_missing_question = skill_area in _MUST_CONTAIN_QUESTION_MARK and "?" not in result.prompt
-    if bad_options or bad_missing_question:
-        # Retry once against the larger STRONG-tier model rather than accepting a
-        # structurally broken question — no options to render, a wrong option count
-        # (observed live: 7 options for one "reading" question, several of them
-        # independently true statements, making the correct answer ambiguous), or a
-        # reading/listening passage with no actual question asked about it (observed
-        # live even after strengthening the prompt to explicitly require one). Cheap
-        # insurance since this only fires on a real failure, not every call.
-        tier = ModelTier.STRONG
+    try:
         result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
 
-    ai_usage_service.log(db, user_id=user_id, session_id=None, node="assessment_question_generator", usage=usage, tier=tier)
+        bad_options = skill_area in _MULTIPLE_CHOICE_SKILLS and (not result.options or len(result.options) != 4)
+        bad_missing_question = skill_area in _MUST_CONTAIN_QUESTION_MARK and "?" not in result.prompt
+        if bad_options or bad_missing_question:
+            # Retry once against the larger STRONG-tier model rather than accepting a
+            # structurally broken question — no options to render, a wrong option count
+            # (observed live: 7 options for one "reading" question, several of them
+            # independently true statements, making the correct answer ambiguous), or a
+            # reading/listening passage with no actual question asked about it (observed
+            # live even after strengthening the prompt to explicitly require one). Cheap
+            # insurance since this only fires on a real failure, not every call.
+            tier = ModelTier.STRONG
+            result, usage = await provider.structured(llm_messages, GeneratedExercise, tier=tier, max_tokens=400)
+        ai_usage_service.log(db, user_id=user_id, session_id=None, node="assessment_question_generator", usage=usage, tier=tier)
+        prompt, options, correct_answer = result.prompt, result.options, result.correct_answer
+    except Exception:
+        # Both tiers failed outright (see _FALLBACK_QUESTIONS above) — this is a
+        # multi-question session already in progress, so losing a question here
+        # would break onboarding entirely rather than just degrading one turn.
+        logger.warning("assessment_question_generator_failed_degrading_gracefully", skill_area=skill_area, exc_info=True)
+        fallback = _FALLBACK_QUESTIONS[skill_area]
+        prompt, options, correct_answer = fallback["prompt"], fallback["options"], fallback["correct_answer"]
 
     question = AssessmentQuestion(
         assessment_session_id=session.id, order_index=order_index, skill_area=skill_area, difficulty=difficulty,
-        prompt=result.prompt, options=result.options, correct_answer=result.correct_answer,
+        prompt=prompt, options=options, correct_answer=correct_answer,
     )
     db.add(question)
     await db.flush()
