@@ -13,6 +13,14 @@ interface Question {
 }
 interface SubmitResult { is_correct: boolean; correct_answer: string; explanation: string; new_mastery: number | null; mastery_delta: number | null; }
 
+const INSTRUCTIONS: Record<string, string> = {
+  fill_blank: "Fill in the blank — type the complete sentence.",
+  correction: "This sentence has a mistake — type the corrected sentence.",
+  transformation: "Rewrite the sentence as instructed above.",
+  multiple_choice: "Choose the correct option.",
+  free_response: "Write your response below.",
+};
+
 export default function PracticePage() {
   const [skillCode, setSkillCode] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -91,7 +99,10 @@ export default function PracticePage() {
               <Badge tone="gold">{question.difficulty}</Badge>
               <span className="text-xs text-cream/40">Question {index + 1} of {questions.length}</span>
             </div>
-            <p className="mt-4 text-cream">{question.prompt}</p>
+            <p className="mt-4 text-xs uppercase tracking-wide text-cream/40">
+              {INSTRUCTIONS[question.question_type] ?? "Answer below."}
+            </p>
+            <p className="mt-1 text-cream">{question.prompt}</p>
 
             {question.options ? (
               <div className="mt-4 space-y-2">
