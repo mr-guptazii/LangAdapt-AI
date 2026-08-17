@@ -43,6 +43,28 @@ def _normalize_answer(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower()).rstrip(".!?,;:")
 
 
+def _extract_blank_filler(prompt: str, correct_answer: str) -> str | None:
+    """fill_blank's correct_answer is required to be the full sentence with
+    the blank resolved (see app/ai/prompts/practice_generator.py — this fixes
+    a different bug where the model dropped the sentence's subject), but a
+    learner naturally reaches for typing just the missing word, the way any
+    other fill-in-the-blank exercise works (observed live: typing "a" against
+    prompt "I have ___ new book." was marked wrong because correct_answer is
+    "I have a new book."). Only handles a single blank — a prompt with more
+    than one has more than one word to fill, so "just the blank" doesn't mean
+    anything and the full sentence is the only sane answer."""
+    blanks = list(re.finditer(r"_{2,}", prompt))
+    if len(blanks) != 1:
+        return None
+    before, after = prompt[: blanks[0].start()], prompt[blanks[0].end():]
+    ca_lower = correct_answer.lower()
+    if not ca_lower.startswith(before.lower()) or not ca_lower.endswith(after.lower()):
+        return None
+    end = len(correct_answer) - len(after) if after else len(correct_answer)
+    filler = correct_answer[len(before):end].strip()
+    return filler or None
+
+
 def _is_gradable(ex) -> bool:
     """Defensive filter (section 12): the LLM-generated exercise prompt in
     app/ai/prompts/practice_generator.py asks for self-consistent exercises,
@@ -155,7 +177,12 @@ async def submit_attempt(
     db: AsyncSession, *, learner_profile: LearnerProfile, question: PracticeQuestion, user_id: UUID,
     answer: str, response_time_ms: int, session_id: UUID | None,
 ) -> tuple[bool, float | None, float | None]:
-    is_correct = _normalize_answer(answer) == _normalize_answer(question.correct_answer)
+    acceptable = {_normalize_answer(question.correct_answer)}
+    if question.question_type == "fill_blank":
+        filler = _extract_blank_filler(question.prompt, question.correct_answer)
+        if filler:
+            acceptable.add(_normalize_answer(filler))
+    is_correct = _normalize_answer(answer) in acceptable
 
     db.add(PracticeAttempt(
         user_id=user_id, question_id=question.id, session_id=session_id, user_answer=answer,

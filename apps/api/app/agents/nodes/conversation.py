@@ -10,6 +10,22 @@ from app.schemas.agent_io import ConversationOutput, ErrorAnalysisOutput
 logger = get_logger(__name__)
 
 
+def _dedupe_trailing_question(response: str, follow_up: str) -> str:
+    """The prompt (build_conversation_prompt) tells the model to keep the
+    follow-up question ONLY in follow_up_question, since callers display
+    response + " " + follow_up_question concatenated — but the model doesn't
+    always comply, producing a visible duplicate (observed live: "...How are
+    you today? How are you today?"). Strips an exact trailing duplicate as a
+    safety net so a prompt slip never reaches the learner."""
+    follow_up = follow_up.strip()
+    if not follow_up:
+        return response
+    stripped = response.rstrip()
+    if stripped.lower().endswith(follow_up.lower()):
+        return stripped[: -len(follow_up)].rstrip()
+    return response
+
+
 async def conversation_agent(state: TutorState) -> dict:
     provider = get_llm_provider()
     profile = state.get("learner_profile", {})
@@ -57,8 +73,12 @@ async def conversation_agent(state: TutorState) -> dict:
     usage_log.append({"node": "conversation_agent", "provider": usage.provider, "model": usage.model,
                        "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens})
 
+    conversation_output = result.model_dump()
+    conversation_output["response"] = _dedupe_trailing_question(
+        conversation_output["response"], conversation_output["follow_up_question"]
+    )
     return {
-        "conversation_output": result.model_dump(),
+        "conversation_output": conversation_output,
         "usage_log": usage_log,
         "agents_invoked": state.get("agents_invoked", []) + ["conversation_agent"],
     }

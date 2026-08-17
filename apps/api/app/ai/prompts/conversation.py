@@ -54,7 +54,10 @@ Rules:
   CEFR {cefr_level}. Do not use structures far above their level.
 - {correction_guidance}
 - {length_guidance}
-- Ask a natural follow-up question to keep the learner producing language.
+- Ask a natural follow-up question to keep the learner producing language, but put it ONLY in
+  follow_up_question — never write it (or any other question) inside response too. The two
+  fields are displayed concatenated as response + " " + follow_up_question, so any question
+  already present in response will appear twice.
 - Never shame the learner. Never use more than one emoji.
 {f"- Current lesson objective (do not announce this explicitly, just steer toward it): {objective}" if objective else ""}
 {f"- Scenario role-play context: {scenario}" if scenario else ""}
