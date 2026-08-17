@@ -19,5 +19,7 @@ Metrics snapshot:
 {metrics}
 
 Respond with the emit_adaptationdecision tool using the AdaptationDecision schema. reason_code
-must be a short stable machine code (e.g. high_recent_accuracy, repeated_mistakes, low_engagement)."""
+must be a short stable machine code (e.g. high_recent_accuracy, repeated_mistakes, low_engagement).
+recommended_action is shown as a single line in a "Why this lesson?" UI card — one concise
+sentence, under 150 characters. Not a paragraph, not a numbered list of suggestions."""
     return [{"role": "system", "content": system}, {"role": "user", "content": "Decide."}]

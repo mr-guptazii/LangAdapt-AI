@@ -36,6 +36,6 @@ class AgentDecision(Base, UUIDPKMixin, TimestampMixin):
     reason_code: Mapped[str] = mapped_column(String(64))
     reason_summary: Mapped[str] = mapped_column(String(500))
     confidence: Mapped[float] = mapped_column(Float)
-    recommended_action: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    recommended_action: Mapped[str | None] = mapped_column(String(500), nullable=True)
     target_skill_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
     inputs_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)  # the metrics that drove the decision
