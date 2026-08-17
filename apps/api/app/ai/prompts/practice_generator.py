@@ -44,6 +44,12 @@ Each exercise must have an unambiguous single correct_answer (one of `options`, 
 match `correct_answer` exactly) and a one-sentence explanation of the grammar rule involved — not
 a fact justification. Do not generate a question nearly identical to another in this batch.
 
+Read every prompt back with the blank mentally filled in: it must sound like something a fluent
+speaker would actually say, not just something grammatically parseable. "She gave ___ hello to
+everyone." is broken even though a word could technically fit — "give ___ hello" is not a real
+English pattern. If a sentence template only works by forcing an unnatural word into it, rewrite
+the whole sentence around a natural, everyday use of the target grammar point instead.
+
 Call emit_practicegenerationoutput with EXACTLY these field names per exercise — do not rename or
 substitute them with your own labels (not "id"/"type"/"question"/"answer", which is a different,
 wrong shape):
