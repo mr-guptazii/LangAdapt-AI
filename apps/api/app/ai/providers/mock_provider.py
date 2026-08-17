@@ -1,6 +1,8 @@
 """Deterministic, dependency-free provider used when no API key is configured
 (section 99/114). This lets the whole application boot and demo end-to-end
-without external calls. Never used in production (see factory.py)."""
+without external calls. Also used as the automatic in-production fallback
+when a real provider fails (rate limit, outage, etc.) — see
+ResilientLLMProvider in resilient_provider.py, wired in factory.py."""
 import hashlib
 import random
 import re

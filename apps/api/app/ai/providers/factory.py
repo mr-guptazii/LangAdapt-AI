@@ -9,9 +9,16 @@ logger = get_logger(__name__)
 
 @lru_cache
 def get_llm_provider() -> LLMProvider:
+    from app.ai.providers.mock_provider import MockLLMProvider
+
     if settings.LLM_PROVIDER == "anthropic" and settings.ANTHROPIC_API_KEY:
         from app.ai.providers.anthropic_provider import AnthropicProvider
-        return AnthropicProvider()
+        from app.ai.providers.resilient_provider import ResilientLLMProvider
+        # Falls back to the mock provider (real deterministic logic, zero
+        # external calls) if the real one fails for any reason — most
+        # commonly a rate-limited/quota-exhausted key (observed repeatedly
+        # in production). Every caller already handles is_mock honestly.
+        return ResilientLLMProvider(AnthropicProvider(), MockLLMProvider())
     if settings.LLM_PROVIDER == "anthropic" and not settings.ANTHROPIC_API_KEY:
         logger.warning("llm_fallback_to_mock", reason="LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set")
 
@@ -20,11 +27,11 @@ def get_llm_provider() -> LLMProvider:
         # backend — NVIDIA NIM, Gemini's OpenAI-compat endpoint, real OpenAI,
         # Groq, etc. — selected by OPENAI_BASE_URL, not by this provider name.
         from app.ai.providers.openai_compatible_provider import OpenAICompatibleProvider
-        return OpenAICompatibleProvider()
+        from app.ai.providers.resilient_provider import ResilientLLMProvider
+        return ResilientLLMProvider(OpenAICompatibleProvider(), MockLLMProvider())
     if settings.LLM_PROVIDER == "openai" and not settings.OPENAI_API_KEY:
         logger.warning("llm_fallback_to_mock", reason="LLM_PROVIDER=openai but OPENAI_API_KEY is not set")
 
-    from app.ai.providers.mock_provider import MockLLMProvider
     return MockLLMProvider()
 
 
