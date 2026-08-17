@@ -80,7 +80,13 @@ export default function TutorPage() {
     }
   }
 
-  async function speak(text: string) {
+  async function speak(rawText: string) {
+    // Emoji are a visual flourish in the chat bubble, not something meant to
+    // be read aloud — the browser's speechSynthesis fallback below narrates
+    // them by name instead of skipping them (observed live: "😊" spoken as
+    // "smile"). Strip them before either TTS path ever sees the text.
+    const text = rawText.replace(/\p{Extended_Pictographic}/gu, "").replace(/\s+/g, " ").trim();
+    if (!text) return;
     try {
       setSpeaking(true);
       const form = new FormData();
