@@ -44,5 +44,8 @@ Each exercise must have an unambiguous single correct_answer (one of `options`, 
 match `correct_answer` exactly) and a one-sentence explanation of the grammar rule involved — not
 a fact justification. Do not generate a question nearly identical to another in this batch.
 
-Respond with the emit_practicegenerationoutput tool using the PracticeGenerationOutput schema."""
+Call emit_practicegenerationoutput with EXACTLY these field names per exercise — do not rename or
+substitute them with your own labels (not "id"/"type"/"question"/"answer", which is a different,
+wrong shape):
+{{"exercises": [{{"question_type": "fill_blank", "prompt": "...", "options": null, "correct_answer": "...", "explanation": "..."}}]}}"""
     return [{"role": "system", "content": system}, {"role": "user", "content": "Generate the exercises."}]

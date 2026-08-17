@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 interface Question {
@@ -21,15 +21,20 @@ export default function PracticePage() {
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function start() {
     setLoading(true);
     setStarted(true);
+    setError(null);
     try {
       const qs = await api.get<Question[]>(`/api/v1/practice/next${skillCode ? `?skill_code=${skillCode}` : ""}`);
       setQuestions(qs);
       setIndex(0);
       setResult(null);
+      if (qs.length === 0) setError("Couldn't generate exercises right now — please try again.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't reach the server — please try again.");
     } finally {
       setLoading(false);
     }
@@ -70,7 +75,17 @@ export default function PracticePage() {
 
         {started && loading && <p className="mt-8 text-cream/40">Generating personalized exercises…</p>}
 
-        {started && !loading && question && (
+        {started && !loading && error && (
+          <Card className="mt-6">
+            <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-200">
+              <XCircle size={16} />
+              {error}
+            </div>
+            <Button className="mt-4" onClick={start}>Try again</Button>
+          </Card>
+        )}
+
+        {started && !loading && !error && question && (
           <Card className="mt-6">
             <div className="flex items-center justify-between">
               <Badge tone="gold">{question.difficulty}</Badge>
