@@ -30,6 +30,16 @@ def _fingerprint(prompt: str) -> str:
     return hashlib.sha256(prompt.strip().lower().encode()).hexdigest()[:32]
 
 
+def _normalize_answer(text: str) -> str:
+    """Grading is exact-string-match, but a learner who types a semantically
+    perfect answer without the trailing period (observed live: "she went to
+    the market yesterday" marked wrong against correct_answer "She went to
+    the market yesterday.") shouldn't be marked wrong over punctuation and
+    whitespace they were never told mattered. Collapses whitespace and drops
+    trailing sentence punctuation before the case-insensitive comparison."""
+    return re.sub(r"\s+", " ", text.strip().lower()).rstrip(".!?,;:")
+
+
 def _is_gradable(ex) -> bool:
     """Defensive filter (section 12): the LLM-generated exercise prompt in
     app/ai/prompts/practice_generator.py asks for self-consistent exercises,
@@ -132,7 +142,7 @@ async def submit_attempt(
     db: AsyncSession, *, learner_profile: LearnerProfile, question: PracticeQuestion, user_id: UUID,
     answer: str, response_time_ms: int, session_id: UUID | None,
 ) -> tuple[bool, float | None, float | None]:
-    is_correct = answer.strip().lower() == question.correct_answer.strip().lower()
+    is_correct = _normalize_answer(answer) == _normalize_answer(question.correct_answer)
 
     db.add(PracticeAttempt(
         user_id=user_id, question_id=question.id, session_id=session_id, user_answer=answer,

@@ -12,9 +12,12 @@ from app.ai.prompts.adaptation import build_adaptation_prompt
 from app.ai.prompts.teaching_strategy import build_teaching_strategy_prompt
 from app.ai.providers.base import LLMMessage, ModelTier
 from app.ai.providers.factory import get_llm_provider
+from app.core.logging import get_logger
 from app.learning.mastery import update_mastery
 from app.schemas.agent_io import AdaptationDecision, TeachingStrategyDecision
 from app.tools import learner_tools
+
+logger = get_logger(__name__)
 
 
 async def learner_model_agent(state: TutorState, db: AsyncSession) -> dict:
@@ -61,7 +64,26 @@ async def adaptation_agent(state: TutorState) -> dict:
     metrics = _recent_accuracy_metrics(state)
     messages = build_adaptation_prompt(metrics=metrics)
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, AdaptationDecision, tier=ModelTier.FAST, max_tokens=300)
+
+    # Same graceful-degradation guard as conversation_agent/error_analysis_agent
+    # (see app/agents/nodes/conversation.py) — this node previously had none,
+    # which was a latent gap that only started surfacing as a hard 500 once a
+    # flakier model was in place (observed live: an intermittent forced
+    # tool-call failure here crashed the whole turn even on a trivial
+    # message). "maintain" is the safe no-op default: skip this turn's
+    # difficulty adjustment rather than lose the reply entirely.
+    try:
+        result, usage = await provider.structured(llm_messages, AdaptationDecision, tier=ModelTier.FAST, max_tokens=300)
+    except Exception:
+        logger.warning("adaptation_agent_failed_degrading_gracefully", exc_info=True)
+        return {
+            "difficulty_decision": {
+                "decision": "maintain", "reason_code": "adaptation_agent_unavailable",
+                "confidence": 0.0, "recommended_action": "No change this turn.",
+                "target_skill": None, "inputs_snapshot": metrics,
+            },
+            "agents_invoked": state.get("agents_invoked", []) + ["adaptation_agent"],
+        }
 
     usage_log = state.get("usage_log", [])
     usage_log.append({"node": "adaptation_agent", "provider": usage.provider, "model": usage.model,
@@ -92,7 +114,22 @@ async def teaching_strategy_agent(state: TutorState) -> dict:
     difficulty_decision = state.get("difficulty_decision", {}).get("decision", "maintain")
     messages = build_teaching_strategy_prompt(learner_summary=learner_summary, difficulty_decision=difficulty_decision)
     llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-    result, usage = await provider.structured(llm_messages, TeachingStrategyDecision, tier=ModelTier.FAST, max_tokens=300)
+
+    # Same graceful-degradation guard as adaptation_agent above — "conversational"
+    # is the same safe default persist_learning_event/generate_response already
+    # fall back to elsewhere (see app/agents/nodes/persistence.py) when no
+    # explicit strategy is set.
+    try:
+        result, usage = await provider.structured(llm_messages, TeachingStrategyDecision, tier=ModelTier.FAST, max_tokens=300)
+    except Exception:
+        logger.warning("teaching_strategy_agent_failed_degrading_gracefully", exc_info=True)
+        return {
+            "teaching_strategy": {
+                "strategy": "conversational", "reason_code": "teaching_strategy_agent_unavailable",
+                "reason_summary": "Defaulted after the strategy model was unavailable this turn.", "confidence": 0.0,
+            },
+            "agents_invoked": state.get("agents_invoked", []) + ["teaching_strategy_agent"],
+        }
 
     usage_log = state.get("usage_log", [])
     usage_log.append({"node": "teaching_strategy_agent", "provider": usage.provider, "model": usage.model,
